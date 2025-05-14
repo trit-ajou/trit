@@ -1,0 +1,4 @@
+.vscode/
+__pycache__/
+_deprecated.py
+_test.py
