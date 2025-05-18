@@ -7,24 +7,27 @@ from .models.Utils import ModelMode
 @dataclass
 class PipelineSetting:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    use_amp = True
+    num_workers = 2
 
-    font_dir = "manga_text_removal/datas/fonts"
+    font_dir = "datas/fonts"
+    img_dir = "datas/images/clear"
+    num_images = 1024
 
-    model1_input_size = (512, 512)
+    model1_input_size = (128, 128)
     model2_input_size = (256, 256)
-    model3_input_size = (256, 256)
+    model3_input_size = (512, 512)
 
-    margin = 10
-    batch_size = 4
-    epochs = 1
+    margin = 5
+    epochs = 100
+    batch_size = 64
+    lr = 0.001
+    weight_decay = 3e-4
+    train_valid_split = 0.2
 
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP
     model3_mode = ModelMode.SKIP
-
-    min_text_len = 5
-    max_text_len = 10
 
     use_noise = False
 
@@ -37,6 +40,7 @@ from typing import Tuple, List, Union, Literal
 class ImagePolicy:
     # --- 기본 설정 ---
     num_texts: Tuple[int, int] = (1, 3)
+    text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
     font_size_ratio_to_image_height_range: Tuple[float, float] = (0.03, 0.10)
@@ -65,8 +69,8 @@ class ImagePolicy:
             (50, 50, 50),
         ]  # 검정, 흰색, 밝은회색, 어두운회색
     )
-    # 불투명도, 0.0: 완전 투명, 1.0: 완전 불투명
-    opacity: Tuple[float, float] = (0.5, 1.0)
+    # 불투명도
+    opacity_range: Tuple[int, int] = (200, 255)
 
     # --- 외곽선 ---
     stroke_prob: float = 0.6  # 외곽선 사용 확률
