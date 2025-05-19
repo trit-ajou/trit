@@ -38,14 +38,11 @@ class TextedImage:
         return self
 
     def merge_bboxes_with_margin(self, margin: int):
-        expanded_bboxes = [
-            bbox.expand(margin, (self.height, self.width)) for bbox in self.bboxes
-        ]
+        expanded_bboxes = [bbox.expand(margin, self.size) for bbox in self.bboxes]
 
         new_bboxes = []
         # Keep track of which original bboxes have been merged
         merged_indices = set()
-
         for i in range(len(expanded_bboxes)):
             if i in merged_indices:
                 continue
@@ -60,13 +57,11 @@ class TextedImage:
                 changed = False
                 for j in range(len(expanded_bboxes)):
                     if j not in merged_indices and i != j:
-                        # Check if expanded_bboxes[j] intersects with the expanded version of the current union
-                        # Need to re-calculate the expanded union bbox in each iteration if we want to be precise
-                        # Simpler: check if expanded_bboxes[j] intersects with *any* expanded bbox in the current group
                         intersects_with_group = False
                         for k in current_group_indices:
                             if expanded_bboxes[j].intersects(expanded_bboxes[k]):
                                 intersects_with_group = True
+                                print(intersects_with_group)
                                 break
 
                         if intersects_with_group:
@@ -84,7 +79,7 @@ class TextedImage:
             new_bboxes.append(current_union_bbox)
             merged_indices.add(i)  # Mark the starting bbox as merged
 
-        return new_bboxes
+        self.bboxes = new_bboxes
 
     @staticmethod
     def img2pil(img: Tensor) -> Image.Image:
