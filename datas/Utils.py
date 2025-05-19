@@ -33,32 +33,36 @@ class BBox(tuple):
         return super().__new__(cls, (x1, y1, x2, y2))
 
     @property
-    def x1(self) -> int:
+    def x1(self):
         return self[0]
 
     @property
-    def y1(self) -> int:
+    def y1(self):
         return self[1]
 
     @property
-    def x2(self) -> int:
+    def x2(self):
         return self[2]
 
     @property
-    def y2(self) -> int:
+    def y2(self):
         return self[3]
 
     @property
-    def width(self) -> int:
+    def width(self):
         return self.x2 - self.x1
 
     @property
-    def height(self) -> int:
+    def height(self):
         return self.y2 - self.y1
 
     @property
-    def area(self) -> int:
+    def area(self):
         return self.width * self.height
+
+    @property
+    def center(self) -> tuple[int, int]:
+        return (self.x1 + self.x2) // 2, (self.y1 + self.y2) // 2
 
     @property
     def slice(
@@ -70,7 +74,12 @@ class BBox(tuple):
             slice(self.x1, self.x2),
         )
 
-    def expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
+    def _unsafe_expand(self, margin: int) -> "BBox":
+        return BBox(
+            self.x1 - margin, self.y1 - margin, self.x2 + margin, self.y2 + margin
+        )
+
+    def _safe_expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
         w, h = img_size
         x1 = max(0, self.x1 - margin)
         y1 = max(0, self.y1 - margin)
@@ -92,3 +101,8 @@ class BBox(tuple):
         x2 = max(self.x2, other.x2)
         y2 = max(self.y2, other.y2)
         return BBox(x1, y1, x2, y2)
+
+    def coord_trans(self, coord_x: int, coord_y: int) -> "BBox":
+        return BBox(
+            self.x1 - coord_x, self.y1 - coord_y, self.x2 - coord_x, self.y2 - coord_y
+        )

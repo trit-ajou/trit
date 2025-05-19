@@ -1,6 +1,7 @@
 import torch
 import torchvision.transforms.functional as VTF
 from torch.utils.data import Dataset
+from torch import Tensor as img_tensor
 
 from .Utils import BBox
 from .TextedImage import TextedImage
@@ -12,7 +13,7 @@ class _BaseMangaDataset(Dataset):
         texted_images: list[TextedImage],
         input_size: tuple[int, int],
     ):
-        self.texted_images: list[TextedImage] = texted_images
+        self.texted_images = texted_images
         self.input_size = input_size
 
     def __len__(self):
@@ -41,7 +42,7 @@ class MangaDataset1(_BaseMangaDataset):
 
         # Model 1 Input: timg resized and padded
         model1_input = TextedImage.resize_keep_aspect(
-            texted_image.texted, self.input_size
+            texted_image.timg, self.input_size
         )
 
         # Model 1 Target: bboxes (as a list of BBox objects for now)
@@ -57,7 +58,7 @@ class MangaDataset2(_BaseMangaDataset_per_BBox):
         super().__init__(texted_images, input_size)
         self.margin = margin
 
-    def __getitem__(self, idx) -> tuple[torch.Tensor, torch.Tensor, int, BBox]:
+    def __getitem__(self, idx) -> tuple[img_tensor, img_tensor, int, BBox]:
         img_idx, bbox = self.item_map[idx]
         texted_image = self.texted_images[img_idx]
 
@@ -65,7 +66,7 @@ class MangaDataset2(_BaseMangaDataset_per_BBox):
         # 1. Expand bbox by margin
         expanded_bbox = bbox.expand(self.margin, texted_image.size)
         # 2. Crop timg using expanded bbox
-        cropped_timg = texted_image.texted[expanded_bbox.slice]
+        cropped_timg = texted_image.timg[expanded_bbox.slice]
         # 3. Resize and pad the cropped timg
         model2_input = TextedImage.resize_keep_aspect(cropped_timg, self.input_size)
 

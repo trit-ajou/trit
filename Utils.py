@@ -16,9 +16,9 @@ class PipelineSetting:
     output_img_dir = "datas/images/output"
     num_images = 1
 
-    model1_input_size = (256, 256)
+    model1_input_size = (512, 512)
     model2_input_size = (256, 256)
-    model3_input_size = (512, 512)
+    model3_input_size = (256, 256)
 
     margin = 5
     epochs = 100
@@ -28,8 +28,8 @@ class PipelineSetting:
     train_valid_split = 0.2
 
     model1_mode = ModelMode.SKIP
-    model2_mode = ModelMode.SKIP
-    model3_mode = ModelMode.SKIP
+    model2_mode = ModelMode.INFERENCE
+    model3_mode = ModelMode.INFERENCE
 
     use_noise = False
 
@@ -41,11 +41,11 @@ from typing import Tuple, List, Union, Literal
 @dataclass
 class ImagePolicy:
     # --- 기본 설정 ---
-    num_texts: Tuple[int, int] = (1, 3)
+    num_texts: Tuple[int, int] = (1, 5)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
-    font_size_ratio_to_image_height_range: Tuple[float, float] = (0.03, 0.10)
+    font_size_ratio_to_image_height_range: Tuple[float, float] = (0.01, 0.05)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률
@@ -77,7 +77,7 @@ class ImagePolicy:
     # --- 외곽선 ---
     stroke_prob: float = 0.6  # 외곽선 사용 확률
     # 외곽선 두께를 텍스트 크기(높이)에 대한 비율로 설정 + 최소/최대 픽셀 제한 가능. 예) 폰트 높이의 5~15%
-    stroke_width_ratio_to_font_size_range: Tuple[float, float] = (0.05, 0.15)
+    stroke_width_ratio_to_font_size_range: Tuple[float, float] = (0.03, 0.5)
     stroke_width_limit_px: tuple[int, int] = (2, 5)  # 최소/최대 외곽선 두께 범위 (픽셀)
     # True면 완전 랜덤 RGB 색상, False면 fixed_stroke_color_options에서 무작위 선택
     stroke_color_is_random: bool = True

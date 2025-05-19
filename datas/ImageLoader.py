@@ -58,10 +58,10 @@ class ImageLoader:
         # TextedImage로 변환 및 리턴
         texted_images = []
         for clear_pil in tqdm(clear_pils, leave=False):
-            texted_images.append(self.pil2TextedImage(clear_pil))
+            texted_images.append(self.pil_to_texted_image(clear_pil))
         return texted_images
 
-    def pil2TextedImage(self, pil: Image.Image) -> Optional[TextedImage]:
+    def pil_to_texted_image(self, pil: Image.Image):
         w, h = pil.size
         orig = VTF.to_tensor(pil.convert("RGB")).to(
             self.setting.device
@@ -124,7 +124,7 @@ class ImageLoader:
             _rgb = _rgba[:3, :, :]
             _alpha = _rgba[3:4, :, :]
             # timg에 합성
-            timg = TextedImage.alpha_blend_at_bbox(timg, bbox, _rgb, _alpha)
+            timg = TextedImage._alpha_blend(timg, bbox, _rgb, _alpha)
             # mask 업데이트
             _mask = (_alpha > 0).float()
             mask[bbox.slice] = torch.maximum(mask[bbox.slice], _mask)
