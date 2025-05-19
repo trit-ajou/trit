@@ -1,12 +1,11 @@
 import tqdm
 import torch
-from torch import nn
 from torch.utils.data import DataLoader
 
 
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
-from .datas.Dataset import MangaDataset1, MangaDataset2, MangaDataset3
+from .datas.Dataset import MangaDataset
 from .models.Model1 import Model1
 from .models.Model2 import Model2
 from .models.Model3 import Model3
@@ -175,54 +174,3 @@ class PipelineMgr:
 
     def get_scaler(self):
         return torch.amp.GradScaler(self.setting.device, enabled=self.setting.use_amp)
-
-    def get_train_valid_loader(self, split_ratio=0.2):
-        if self.model is None:
-            return None
-
-        split_idx = int(len(self.texted_images) * split_ratio)
-        if isinstance(self.model, Model1):
-            train_set = MangaDataset1(self.texted_images[split_idx:])
-            valid_set = MangaDataset1(self.texted_images[:split_idx])
-        elif isinstance(self.model, Model2):
-            train_set = MangaDataset2(self.texted_images[split_idx:])
-            valid_set = MangaDataset2(self.texted_images[:split_idx])
-        elif isinstance(self.model, Model3):
-            train_set = MangaDataset3(self.texted_images[split_idx:])
-            valid_set = MangaDataset3(self.texted_images[:split_idx])
-
-        train_loader = DataLoader(
-            train_set,
-            batch_size=self.setting.batch_size,
-            num_workers=self.setting.num_workers,
-            pin_memory=True,
-            persistent_workers=self.setting.num_workers > 0,
-            drop_last=True,
-        )
-        valid_loader = DataLoader(
-            valid_set,
-            batch_size=self.setting.batch_size,
-            num_workers=self.setting.num_workers,
-            pin_memory=True,
-            persistent_workers=self.setting.num_workers > 0,
-        )
-        return train_loader, valid_loader
-
-    def get_test_loader(self):
-        if self.model is None:
-            return None
-
-        if isinstance(self.model, Model1):
-            test_set = MangaDataset1(self.texted_images)
-        elif isinstance(self.model, Model2):
-            test_set = MangaDataset2(self.texted_images)
-        elif isinstance(self.model, Model3):
-            test_set = MangaDataset3(self.texted_images)
-
-        return DataLoader(
-            test_set,
-            batch_size=self.setting.batch_size,
-            num_workers=self.setting.num_workers,
-            pin_memory=True,
-            persistent_workers=self.setting.num_workers > 0,
-        )
