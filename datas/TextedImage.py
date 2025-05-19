@@ -61,9 +61,8 @@ class TextedImage:
     def split_margin_crop(self, margin=0):
         """margin crop 범위 내에 다른 텍스트 있을 일 없음.
         _bbox는 원래 이미지에 붙여넣을 때 잘라내야 할 정확한 크기를 저장함."""
-        expanded_bboxes = [bbox._unsafe_expand(margin) for bbox in self.bboxes]
         texted_images: list[TextedImage] = []
-        for bbox in expanded_bboxes:
+        for bbox in self.bboxes:
             orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin)
             timg, _ = TextedImage._margin_crop(self.timg, bbox, margin)
             mask, _ = TextedImage._margin_crop(self.mask, bbox, margin)
