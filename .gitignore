@@ -1,4 +1,5 @@
 .vscode/
 __pycache__/
-_deprecated.py
-_test.py
+datas/fonts/
+datas/checkpoints/
+datas/images/

@@ -5,6 +5,7 @@ import torch
 import torchvision.transforms.functional as VTF
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from typing import List, Tuple, Optional, Dict
+from tqdm import tqdm
 
 from .Utils import BBox, Lang, UNICODE_RANGES
 from .TextedImage import TextedImage
@@ -21,8 +22,8 @@ class ImageLoader:
         self.policy = policy
         # font path 미리 저장
         self.font_paths = [
-            os.path.join(dir, filename)
-            for filename in os.listdir(dir)
+            os.path.join(self.setting.font_dir, filename)
+            for filename in os.listdir(self.setting.font_dir)
             if filename.lower().endswith((".ttf", ".otf", ".ttc"))
         ]
         if not self.font_paths:
@@ -35,15 +36,14 @@ class ImageLoader:
         # 노이즈 이미지 사용 안하는 경우
         if not self.setting.use_noise:
             _paths = [
-                os.path.join(self.setting.img_dir, filename)
-                for filename in os.listdir(self.setting.img_dir)
+                os.path.join(self.setting.clear_img_train_dir, filename)
+                for filename in os.listdir(self.setting.clear_img_train_dir)
                 if filename.lower().endswith((".png", ".jpg", ".jpeg"))
             ]
             # 랜덤 비복원 추출. 이미지가 num_images보다 부족하면 있는 만큼만 로드 후 나머지는 noise로 대체.
             if num_images < len(_paths):
                 _paths = random.sample(_paths, k=num_images)
-            else:
-                print("저장된 이미지가 부족하여 나머지는 noise image로 대체합니다.")
+            print(f"[ImageLoader] 로딩 가능 이미지 {len(_paths)}/{num_images}")
             for _path in _paths:
                 clear_pils.append(Image.open(_path).convert("RGB"))
         # 클리어 이미지 부족한 경우 또는 노이즈 이미지 사용 옵션이 켜져 있어 list가 비어 있는 경우
@@ -56,17 +56,22 @@ class ImageLoader:
             for noise_img in noise_imgs:
                 clear_pils.append(Image.fromarray(noise_img, "RGB"))
         # TextedImage로 변환 및 리턴
-        return [self.pil2TextedImage(clear_pil) for clear_pil in clear_pils]
+        texted_images = []
+        for clear_pil in tqdm(clear_pils, leave=False):
+            texted_images.append(self.pil2TextedImage(clear_pil))
+        return texted_images
 
     def pil2TextedImage(self, pil: Image.Image) -> Optional[TextedImage]:
         w, h = pil.size
-        orig = VTF.to_tensor(pil.convert("RGB"))  # orig는 텐서로 변환만 하면 끝
+        orig = VTF.to_tensor(pil.convert("RGB")).to(
+            self.setting.device
+        )  # orig는 텐서로 변환만 하면 끝
         timg = orig.clone()
         mask = torch.zeros((1, w, h), device=self.setting.device)
         bboxes: List[BBox] = []
         # timg, mask, bboxes 생성 루프
         num_texts = random.randint(*self.policy.num_texts)
-        for _ in range(num_texts):
+        for i in range(num_texts):
             # 폰트 크기 설정
             is_sfx_style = random.random() < self.policy.sfx_style_prob
             font_size_ratio = random.uniform(
@@ -112,15 +117,10 @@ class ImageLoader:
             x = random.randint(0, max_x)
             y = random.randint(0, max_y)
             # bbox 생성
-            bbox = BBox(
-                float(x),
-                float(y),
-                float(x + text_w),
-                float(y + text_h),
-            )
+            bbox = BBox(x, y, x + text_w, y + text_h)
             bboxes.append(bbox)
             # pil을 Tensor로 변환 후 rgb 채널, alpha 채널 분리
-            _rgba = VTF.to_tensor(pil).to(self.setting.device)
+            _rgba = VTF.to_tensor(text_pil).to(self.setting.device)
             _rgb = _rgba[:3, :, :]
             _alpha = _rgba[3:4, :, :]
             # timg에 합성
@@ -224,11 +224,7 @@ class ImageLoader:
     def _render_text_layer(
         self, text_content: str, font: ImageFont.FreeTypeFont, policy_is_sfx: bool
     ) -> Optional[Image.Image]:
-        text_color = self._get_random_rgba(
-            self.policy.fixed_text_color_options,
-            self.policy.text_color_is_random,
-            self.policy.opacity_range,
-        )
+        text_color = self._get_random_rgba()
         stroke_width = 0
         stroke_fill = None
         if random.random() < self.policy.stroke_prob or policy_is_sfx:
@@ -242,11 +238,7 @@ class ImageLoader:
                     max(stroke_width, int(font.size * 0.15)),
                     self.policy.stroke_width_limit_px[1] * 2,
                 )
-            stroke_fill = self._get_random_rgba(
-                self.policy.fixed_stroke_color_options,
-                self.policy.stroke_color_is_random,
-                self.policy.opacity_range,
-            )
+            stroke_fill = self._get_random_rgba()
 
         shadow_params = None
         if random.random() < self.policy.shadow_prob or policy_is_sfx:
@@ -257,9 +249,7 @@ class ImageLoader:
                 *self.policy.shadow_offset_y_ratio_to_font_size_range
             )
             s_blur = random.randint(*self.policy.shadow_blur_radius_range)
-            s_color = self._get_random_rgba(
-                [self.policy.shadow_color], False, self.policy.shadow_opacity
-            )
+            s_color = self._get_random_rgba()
             if policy_is_sfx:
                 s_off_x_r *= 1.5
                 s_off_y_r *= 1.5
@@ -424,7 +414,7 @@ class ImageLoader:
 
         final_bbox_in_layer = final_transformed_layer.getbbox()
         if final_bbox_in_layer is None:
-            return None, None
+            return None
 
         cropped_layer = final_transformed_layer.crop(final_bbox_in_layer)
         # 반환값: 잘라낸 최종 텍스트 이미지

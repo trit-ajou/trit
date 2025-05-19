@@ -11,10 +11,12 @@ class PipelineSetting:
     num_workers = 2
 
     font_dir = "datas/fonts"
-    img_dir = "datas/images/clear"
-    num_images = 1024
+    clear_img_train_dir = "datas/images/clear/train"
+    clear_img_test_dir = "datas/images/clear/test"
+    output_img_dir = "datas/images/output"
+    num_images = 1
 
-    model1_input_size = (128, 128)
+    model1_input_size = (256, 256)
     model2_input_size = (256, 256)
     model3_input_size = (512, 512)
 
@@ -70,7 +72,7 @@ class ImagePolicy:
         ]  # 검정, 흰색, 밝은회색, 어두운회색
     )
     # 불투명도
-    opacity_range: Tuple[int, int] = (200, 255)
+    opacity_range: Tuple[int, int] = (220, 255)
 
     # --- 외곽선 ---
     stroke_prob: float = 0.6  # 외곽선 사용 확률

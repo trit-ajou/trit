@@ -89,8 +89,12 @@ class TextedImage:
     @staticmethod
     def img2pil(img: Tensor) -> Image.Image:
         img = img.detach().cpu()
-        img = img.mul(255).byte().permute(1, 2, 0)
-        return Image.fromarray(img.numpy(), "RGB")
+        img = img.mul(255).byte().permute(1, 2, 0).numpy()
+        return (
+            Image.fromarray(img, "RGB")
+            if img.shape[2] == 3
+            else Image.fromarray(img.squeeze(), "L")
+        )  # 무조건 RGB 아니면 L만 씀
 
     @staticmethod
     def resize_keep_aspect(img: Tensor, target_size: tuple[int, int]) -> Tensor:
@@ -126,16 +130,15 @@ class TextedImage:
     ) -> Tensor:
         # Calc alpha blended region
         if cropped_alpha is None:
-            blended_region = cropped_img
+            blended_img = cropped_img
         else:
-            cropped_img = background_img[bbox.slice]
-            blended_region = (cropped_img * cropped_alpha) + (
-                cropped_img * (1.0 - cropped_alpha)
+            cropped_background = background_img[bbox.slice]
+            blended_img = (cropped_img * cropped_alpha) + (
+                cropped_background * (1.0 - cropped_alpha)
             )
         # Paste
         output_image = background_img.clone()  # 원본수정방지
-        output_image[bbox.slice] = blended_region
-
+        output_image[bbox.slice] = blended_img
         return output_image
 
     @staticmethod
@@ -216,7 +219,7 @@ class TextedImage:
 
             return padded_tensor
 
-    def visualize(self, filename="test.png"):
+    def visualize(self, dir="", filename="test.png"):
         pil_orig = TextedImage.img2pil(self.background)
         pil_timg = TextedImage.img2pil(self.texted)
         pil_mask = TextedImage.img2pil(self.mask)
@@ -241,5 +244,5 @@ class TextedImage:
         axes[2].axis("off")
 
         plt.tight_layout()
-        plt.savefig(filename)
+        plt.savefig(dir + "/" + filename)
         plt.close()

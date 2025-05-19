@@ -1,5 +1,8 @@
 import argparse
 
+from .Pipeline import PipelineMgr
+from .Utils import PipelineSetting, ImagePolicy
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -12,14 +15,13 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--vis_interval", type=int, default=1)
     parser.add_argument("--ckpt_interval", type=int, default=5)
-
     args = parser.parse_args()
-
-    if args.model == 0:
-        args.no_grad = True
-
     return args
 
 
 if __name__ == "__main__":
     args = parse_args()
+    setting = PipelineSetting()
+    policy = ImagePolicy()
+    pipeline = PipelineMgr(setting, policy)
+    pipeline.run()

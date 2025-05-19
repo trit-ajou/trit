@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Literal
 
 
 class Lang(Enum):
@@ -64,12 +63,12 @@ class BBox(tuple):
     @property
     def slice(
         self,
-    ) -> tuple[
-        slice[None],
-        slice[int, int, Literal[1]],
-        slice[int, int, Literal[1]],
-    ]:
-        return (slice(None), slice(self.x1, self.x2), slice(self.y1, self.y2))
+    ) -> tuple[slice, slice, slice]:
+        return (
+            slice(None),
+            slice(self.y1, self.y2),
+            slice(self.x1, self.x2),
+        )
 
     def expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
         w, h = img_size
