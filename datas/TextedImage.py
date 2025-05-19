@@ -58,7 +58,7 @@ class TextedImage:
             merged_indices.add(i)
         self.bboxes = new_bboxes
 
-    def split_margin_crop(self, margin=0):
+    def split_margin_crop(self, margin: int):
         """margin crop 범위 내에 다른 텍스트 있을 일 없음.
         _bbox는 원래 이미지에 붙여넣을 때 잘라내야 할 정확한 크기를 저장함."""
         texted_images: list[TextedImage] = []
@@ -140,23 +140,16 @@ class TextedImage:
     ) -> img_tensor:
         _, h, w = img.shape
         expanded_bbox = bbox._unsafe_expand(margin)
-        # 2. Determine the part of this target window that actually overlaps with the image
-        src_x1 = max(0, expanded_bbox.x1)
-        src_y1 = max(0, expanded_bbox.y1)
-        src_x2 = min(w, expanded_bbox.x2)
-        src_y2 = min(h, expanded_bbox.y2)
-        # 3. Crop this overlapping part from the image
-        cropped_from_img = img[:, src_y1:src_y2, src_x1:src_x2]
-        # 4. Calculate padding needed to make `cropped_from_img` the `target_crop_size`
+        crop_bbox = bbox._safe_expand(margin, (h, w))
+        # calc pad
         pad_left = max(0, -expanded_bbox.x1)
         pad_top = max(0, -expanded_bbox.y1)
         pad_right = max(0, expanded_bbox.x2 - w)
         pad_bottom = max(0, expanded_bbox.y2 - h)
         # Apply padding if needed
-        padded_crop = VTF.pad(
-            cropped_from_img, (pad_left, pad_top, pad_right, pad_bottom)
-        )
-        return padded_crop, bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
+        img = img[crop_bbox.slice]
+        img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom))
+        return img, bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
 
     @staticmethod
     def _center_crop(
