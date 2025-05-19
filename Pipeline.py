@@ -27,7 +27,6 @@ class PipelineMgr:
         self.texted_images: list[TextedImage] = self.imageloader.load_images(
             self.setting.num_images
         )
-        print(self.texted_images)
         self.texted_images[0].visualize(self.setting.output_img_dir, "step1.png")
 
         # Step 2: BBox Merging

@@ -1,9 +1,5 @@
-import torch
-import torchvision.transforms.functional as VTF
 from torch.utils.data import Dataset
-from torch import Tensor as img_tensor
 
-from .Utils import BBox
 from .TextedImage import TextedImage
 
 

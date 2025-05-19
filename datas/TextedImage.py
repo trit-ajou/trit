@@ -64,10 +64,9 @@ class TextedImage:
         expanded_bboxes = [bbox._unsafe_expand(margin) for bbox in self.bboxes]
         texted_images: list[TextedImage] = []
         for bbox in expanded_bboxes:
-            orig = TextedImage._margin_crop(self.orig, bbox, margin)
-            timg = TextedImage._margin_crop(self.timg, bbox, margin)
-            mask = TextedImage._margin_crop(self.mask, bbox, margin)
-            _bbox = BBox(margin, margin, bbox.width - margin, bbox.height - margin)
+            orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin)
+            timg, _ = TextedImage._margin_crop(self.timg, bbox, margin)
+            mask, _ = TextedImage._margin_crop(self.mask, bbox, margin)
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 
@@ -158,7 +157,7 @@ class TextedImage:
         padded_crop = VTF.pad(
             cropped_from_img, (pad_left, pad_top, pad_right, pad_bottom)
         )
-        return padded_crop
+        return padded_crop, bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
 
     @staticmethod
     def _center_crop(
