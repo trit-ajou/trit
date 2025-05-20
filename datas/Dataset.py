@@ -14,7 +14,4 @@ class MangaDataset(Dataset):
 
     def __getitem__(self, idx: int):
         texted_image = self.texted_images[idx]
-        orig = TextedImage._resize(texted_image.orig, self.input_size)
-        timg = TextedImage._resize(texted_image.timg, self.input_size)
-        mask = TextedImage._resize(texted_image.mask, self.input_size)
-        return orig, timg, mask, texted_image.bboxes
+        return texted_image._resize(self.input_size)

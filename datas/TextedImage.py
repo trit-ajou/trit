@@ -1,8 +1,8 @@
 import torch
-from torch import Tensor as img_tensor
 import torchvision.transforms.functional as VTF
-from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
+from torch import Tensor as img_tensor
+from PIL import Image, ImageDraw
 
 from .Utils import BBox
 
@@ -94,9 +94,8 @@ class TextedImage:
             if cropped_texted_image.mask is not None:
                 self.mask[bbox.slice] = cropped_texted_image.mask[_bbox.slice]
 
-    @staticmethod
-    def _resize(img: img_tensor, size: tuple[int, int]) -> img_tensor:
-        _, orig_h, orig_w = img.shape
+    def _resize(self, size: tuple[int, int]) -> img_tensor:
+        _, orig_h, orig_w = self.orig.shape
         target_h, target_w = size
         # Calculate aspect ratios
         original_aspect = orig_w / orig_h
@@ -108,14 +107,38 @@ class TextedImage:
         else:
             new_h = target_h
             new_w = int(target_h * original_aspect)
-        img = VTF.resize(img, (new_h, new_w))
+        self.orig = VTF.resize(self.orig, (new_h, new_w))
+        self.timg = VTF.resize(self.timg, (new_h, new_w))
+        self.mask = VTF.resize(self.mask, (new_h, new_w))
         # pad
         pad_left = (target_w - new_w) // 2
         pad_right = target_w - new_w - pad_left
         pad_top = (target_h - new_h) // 2
         pad_bottom = target_h - new_h - pad_top
-        img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom))
-        return img
+        self.orig = VTF.pad(self.orig, (pad_left, pad_top, pad_right, pad_bottom))
+        self.timg = VTF.pad(self.timg, (pad_left, pad_top, pad_right, pad_bottom))
+        self.mask = VTF.pad(self.mask, (pad_left, pad_top, pad_right, pad_bottom))
+
+        # resize bboxes
+        new_bboxes: list[BBox] = []
+        scale_w = new_w / orig_w
+        scale_h = new_h / orig_h
+        for bbox in self.bboxes:
+            x1, y1, x2, y2 = bbox
+            x1 *= scale_w
+            x2 *= scale_w
+            y1 *= scale_h
+            y2 *= scale_h
+            new_bboxes.append(
+                BBox(
+                    int(x1 + pad_left),
+                    int(y1 + pad_top),
+                    int(x2 + pad_left),
+                    int(y2 + pad_top),
+                )
+            )
+        self.bboxes = new_bboxes
+        return self
 
     @staticmethod
     def _alpha_blend(

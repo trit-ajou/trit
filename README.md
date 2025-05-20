@@ -19,4 +19,9 @@
 
 ## BBox
 - x1, y1, x2, y2 형태의 tuple
--   
+
+## ImageLoader
+- 아무튼 생성됨 건드리지말것 어케돌아가는지 모름
+
+## Utils/PipelineSetting, ImagePolicy
+- 설정 클래스. 기본값 바꾸고싶으면 main에서 parser 기본값 수정하셈

@@ -27,17 +27,17 @@ class ImageLoader:
             if filename.lower().endswith((".ttf", ".otf", ".ttc"))
         ]
         if not self.font_paths:
-            raise ValueError("폰트를 추가해라 휴먼")
+            raise ValueError("[ImageLoader] 폰트를 추가해라 휴먼")
         # font cache 정의: key=(path, size)
         self.font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 
-    def load_images(self, num_images: int) -> List[TextedImage]:
+    def load_images(self, num_images: int, dir: str) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
         # 노이즈 이미지 사용 안하는 경우
         if not self.setting.use_noise:
             _paths = [
-                os.path.join(self.setting.clear_img_train_dir, filename)
-                for filename in os.listdir(self.setting.clear_img_train_dir)
+                os.path.join(dir, filename)
+                for filename in os.listdir(dir)
                 if filename.lower().endswith((".png", ".jpg", ".jpeg"))
             ]
             # 랜덤 비복원 추출. 이미지가 num_images보다 부족하면 있는 만큼만 로드 후 나머지는 noise로 대체.
@@ -144,7 +144,7 @@ class ImageLoader:
             return font
         # 폰트 로딩 중 오류 발생 시 None으로 표시. 해당 폰트는 더 이상 로딩 안됨.
         except:
-            print(f"{_path} 로딩 중 에러 발생.")
+            print(f"[ImageLoader] {_path} 폰트 로딩 중 에러")
             self.font_cache[(_path, size)] = None
             return None
 
@@ -297,7 +297,7 @@ class ImageLoader:
         text_render_width = text_bbox[2] - text_bbox[0]
         text_render_height = text_bbox[3] - text_bbox[1]
 
-        # *** 중요 수정: 변형을 위한 충분한 패딩 추가 ***
+        # *** 변형을 위한 충분한 패딩 추가 ***
         # 예상 최대 변형 크기를 고려. 대각선 길이의 2배 정도 또는 고정값.
         # 회전 시 expand=True가 크기를 늘리지만, 다른 변형은 그렇지 않음.
         # 그림자, 외곽선, 회전, 기울이기, 원근왜곡 모두 고려.

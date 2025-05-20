@@ -11,27 +11,29 @@ class PipelineSetting:
     num_workers = 2
 
     font_dir = "datas/fonts"
-    clear_img_train_dir = "datas/images/clear/train"
-    clear_img_test_dir = "datas/images/clear/test"
+    clear_img_dir = "datas/images/clear"
     output_img_dir = "datas/images/output"
-    num_images = 1
+    num_images = 128
 
     model1_input_size = (256, 256)
     model2_input_size = (256, 256)
     model3_input_size = (256, 256)
 
-    margin = 5
+    use_noise = False
+    margin = 4
     epochs = 100
-    batch_size = 64
+    batch_size = 4
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
 
     model1_mode = ModelMode.SKIP
-    model2_mode = ModelMode.INFERENCE
-    model3_mode = ModelMode.INFERENCE
+    model2_mode = ModelMode.SKIP
+    model3_mode = ModelMode.SKIP
 
-    use_noise = False
+    vis_interval = 5
+    ckpt_interval = 1
+    ckpt_dir = "datas/checkpoints"
 
 
 from dataclasses import dataclass, field

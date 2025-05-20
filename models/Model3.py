@@ -1,4 +1,4 @@
-import torch.nn as nn
+from torch import nn
 
 
 class Model3(nn.Module):
