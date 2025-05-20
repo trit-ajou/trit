@@ -30,6 +30,7 @@ UNICODE_RANGES = {
 
 class BBox(tuple):
     def __new__(cls, x1: int, y1: int, x2: int, y2: int):
+        x1, y1, x2, y2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
         return super().__new__(cls, (x1, y1, x2, y2))
 
     @property

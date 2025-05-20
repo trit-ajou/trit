@@ -8,7 +8,7 @@ from .models.Utils import ModelMode
 class PipelineSetting:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     use_amp = True
-    num_workers = 2
+    num_workers = 0
 
     font_dir = "datas/fonts"
     clear_img_dir = "datas/images/clear"
@@ -21,6 +21,7 @@ class PipelineSetting:
 
     use_noise = False
     margin = 4
+    max_objects = 1024
     epochs = 100
     batch_size = 4
     lr = 0.001

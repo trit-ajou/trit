@@ -1,13 +1,14 @@
-import tqdm
 import torch
+from tqdm import tqdm
 from copy import copy
 from torch.utils.data import DataLoader, random_split
 
 
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
-from .datas.Dataset import MangaDataset
+from .datas.Dataset import MangaDataset1
 from .models.Utils import ModelMode
+from .models.Model1 import Model1, Model1Loss
 from .Utils import PipelineSetting, ImagePolicy
 
 
@@ -35,7 +36,30 @@ class PipelineMgr:
             ]
             if self.setting.model1_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 1")
-                # TODO: model 1 train, viz
+                model = Model1(self.setting.model1_input_size, max_objects=1024)
+                model.to(self.setting.device)
+                optimizer = torch.optim.AdamW(
+                    model.parameters(),
+                    self.setting.lr,
+                    weight_decay=self.setting.weight_decay,
+                )
+                criterion = Model1Loss()
+                train_loader, valid_loader = MangaDataset1.get_dataloader(
+                    texted_images_for_model1, self.setting, train_valid_split=0.2
+                )
+                for epoch in range(self.setting.epochs):
+                    for batch in tqdm(train_loader, leave=False):
+                        optimizer.zero_grad()
+
+                        pred_bboxes, pred_scores = model(batch["timg"])
+                        total_loss, loc_loss, obj_loss = criterion(
+                            pred_bboxes,
+                            pred_scores,
+                            batch["target_bboxes"],
+                            batch["target_scores"],
+                        )
+                        total_loss.backward()
+                        optimizer.step()
             elif self.setting.model1_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 1 Inference")
                 # TODO: model 1 inference, viz, apply
@@ -87,36 +111,3 @@ class PipelineMgr:
         ################################################### Step 8: Model 3 output apply #####################################
         if self.setting.model3_mode == ModelMode.INFERENCE:
             pass
-
-    @staticmethod
-    def get_dataloader(
-        texted_images: list[TextedImage],
-        input_size: tuple[int, int],
-        batch_size: int,
-        num_workers: int,
-        train_valid_split=1.0,  # 1.0 for valid loader only (for inference mode)
-    ):
-        full_set = MangaDataset(texted_images, input_size)
-        valid_portion = train_valid_split
-        train_portion = 1 - valid_portion
-        train_set, valid_set = random_split(full_set, (train_portion, valid_portion))
-        train_loader = (
-            DataLoader(
-                train_set,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                pin_memory=True,
-                persistent_workers=(num_workers > 0),
-                drop_last=True,
-            )
-            if len(train_set) > 0
-            else None
-        )
-        valid_loader = DataLoader(
-            valid_set,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=(num_workers > 0),
-        )
-        return train_loader, valid_loader

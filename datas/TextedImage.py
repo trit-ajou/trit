@@ -22,8 +22,8 @@ class TextedImage:
 
     @property
     def img_size(self):
-        _, h, w = self.orig.shape
-        return h, w
+        _, H, W = self.orig.shape
+        return H, W
 
     def merge_bboxes_with_margin(self, margin: int):
         expanded_bboxes = [
@@ -96,34 +96,33 @@ class TextedImage:
 
     def _resize(self, size: tuple[int, int]):
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
-        _, orig_h, orig_w = self.orig.shape
-        target_h, target_w = size
+        _, H, W = self.orig.shape
+        TARGET_H, TARGET_W = size
         # Calculate aspect ratios
-        original_aspect = orig_w / orig_h
-        target_aspect = target_w / target_h
+        original_aspect = W / H
+        target_aspect = TARGET_W / TARGET_H
         # Resize
         if original_aspect > target_aspect:
-            new_h = int(target_w / original_aspect)
-            new_w = target_w
+            new_h = int(TARGET_W / original_aspect)
+            new_w = TARGET_W
         else:
-            new_h = target_h
-            new_w = int(target_h * original_aspect)
+            new_h = TARGET_H
+            new_w = int(TARGET_H * original_aspect)
         self.orig = VTF.resize(self.orig, (new_h, new_w))
         self.timg = VTF.resize(self.timg, (new_h, new_w))
         self.mask = VTF.resize(self.mask, (new_h, new_w))
         # pad
-        pad_left = (target_w - new_w) // 2
-        pad_right = target_w - new_w - pad_left
-        pad_top = (target_h - new_h) // 2
-        pad_bottom = target_h - new_h - pad_top
+        pad_left = (TARGET_W - new_w) // 2
+        pad_right = TARGET_W - new_w - pad_left
+        pad_top = (TARGET_H - new_h) // 2
+        pad_bottom = TARGET_H - new_h - pad_top
         self.orig = VTF.pad(self.orig, (pad_left, pad_top, pad_right, pad_bottom))
         self.timg = VTF.pad(self.timg, (pad_left, pad_top, pad_right, pad_bottom))
         self.mask = VTF.pad(self.mask, (pad_left, pad_top, pad_right, pad_bottom))
-
         # resize bboxes
         new_bboxes: list[BBox] = []
-        scale_w = new_w / orig_w
-        scale_h = new_h / orig_h
+        scale_w = new_w / W
+        scale_h = new_h / H
         for bbox in self.bboxes:
             x1, y1, x2, y2 = bbox
             x1 *= scale_w
@@ -139,7 +138,6 @@ class TextedImage:
                 )
             )
         self.bboxes = new_bboxes
-        return self
 
     @staticmethod
     def _alpha_blend(
@@ -162,14 +160,14 @@ class TextedImage:
         bbox: BBox,
         margin: int,
     ) -> img_tensor:
-        _, h, w = img.shape
+        _, H, W = img.shape
         expanded_bbox = bbox._unsafe_expand(margin)
-        crop_bbox = bbox._safe_expand(margin, (h, w))
+        crop_bbox = bbox._safe_expand(margin, (H, W))
         # calc pad
         pad_left = max(0, -expanded_bbox.x1)
         pad_top = max(0, -expanded_bbox.y1)
-        pad_right = max(0, expanded_bbox.x2 - w)
-        pad_bottom = max(0, expanded_bbox.y2 - h)
+        pad_right = max(0, expanded_bbox.x2 - W)
+        pad_bottom = max(0, expanded_bbox.y2 - H)
         # Apply padding if needed
         img = img[crop_bbox.slice]
         img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom))
@@ -181,7 +179,7 @@ class TextedImage:
         bbox: BBox,
         size: tuple[int, int],
     ) -> tuple[img_tensor, BBox]:
-        _, h, w = img.shape
+        _, H, W = img.shape
         output_h, output_w = size
         bbox_center_x, bbox_center_y = bbox.center
         # 1. bbox 중심으로 이상적인 crop 영역의 좌상단(x1, y1) 계산
@@ -194,10 +192,10 @@ class TextedImage:
         if crop_y1 < 0:
             crop_y1 = 0
         # 오른쪽/아래쪽 테두리 기준으로 밀어넣기
-        if crop_x1 + output_w > w:
-            crop_x1 = w - output_w
-        if crop_y1 + output_h > h:
-            crop_y1 = h - output_h
+        if crop_x1 + output_w > W:
+            crop_x1 = W - output_w
+        if crop_y1 + output_h > H:
+            crop_y1 = H - output_h
         # 3. slice
         slice_bbox = BBox(crop_x1, crop_y1, crop_x1 + output_w, crop_y1 + output_h)
         _bbox = bbox.coord_trans(crop_x1, crop_y1)
