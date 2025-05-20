@@ -96,13 +96,17 @@ class PipelineMgr:
         valid_portion = train_valid_split
         train_portion = 1 - valid_portion
         train_set, valid_set = random_split(full_set, (train_portion, valid_portion))
-        train_loader = DataLoader(
-            train_set,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=True,
-            persistent_workers=(num_workers > 0),
-            drop_last=True,
+        train_loader = (
+            DataLoader(
+                train_set,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                pin_memory=True,
+                persistent_workers=(num_workers > 0),
+                drop_last=True,
+            )
+            if len(train_set) > 0
+            else None
         )
         valid_loader = DataLoader(
             valid_set,
