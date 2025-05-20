@@ -94,7 +94,8 @@ class TextedImage:
             if cropped_texted_image.mask is not None:
                 self.mask[bbox.slice] = cropped_texted_image.mask[_bbox.slice]
 
-    def _resize(self, size: tuple[int, int]) -> img_tensor:
+    def _resize(self, size: tuple[int, int]):
+        """Note: this function does not create new `TextedImage` obejct but modifies itself."""
         _, orig_h, orig_w = self.orig.shape
         target_h, target_w = size
         # Calculate aspect ratios

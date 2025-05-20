@@ -1,5 +1,6 @@
 import tqdm
 import torch
+from copy import copy
 from torch.utils.data import DataLoader, random_split
 
 
@@ -29,6 +30,9 @@ class PipelineMgr:
 
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
+            texted_images_for_model1 = [
+                copy(texted_image) for texted_image in self.texted_images
+            ]
             if self.setting.model1_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 1")
                 # TODO: model 1 train, viz
@@ -45,9 +49,9 @@ class PipelineMgr:
         ################################################### Step 5: Model 2 ##################################################
         if self.setting.model2_mode != ModelMode.SKIP:
             texted_images_for_model2 = [
-                _texted_image
+                _splitted
                 for texted_image in self.texted_images
-                for _texted_image in texted_image.split_margin_crop(self.setting.margin)
+                for _splitted in texted_image.split_margin_crop(self.setting.margin)
             ]
             if self.setting.model2_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 2")
@@ -65,9 +69,9 @@ class PipelineMgr:
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
             texted_images_for_model3 = [
-                _texted_image
+                _splitted
                 for texted_image in self.texted_images
-                for _texted_image in texted_image.split_center_crop(
+                for _splitted in texted_image.split_center_crop(
                     self.setting.model3_input_size
                 )
             ]
