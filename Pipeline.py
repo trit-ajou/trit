@@ -36,7 +36,9 @@ class PipelineMgr:
             ]
             if self.setting.model1_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 1")
-                model = Model1(self.setting.model1_input_size, max_objects=1024)
+                model = Model1(
+                    self.setting.model1_input_size, max_objects=self.setting.max_objects
+                )
                 model.to(self.setting.device)
                 optimizer = torch.optim.AdamW(
                     model.parameters(),
