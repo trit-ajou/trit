@@ -36,32 +36,8 @@ class PipelineMgr:
             ]
             if self.setting.model1_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 1")
-                model = Model1(
-                    self.setting.model1_input_size, max_objects=self.setting.max_objects
-                )
-                model.to(self.setting.device)
-                optimizer = torch.optim.AdamW(
-                    model.parameters(),
-                    self.setting.lr,
-                    weight_decay=self.setting.weight_decay,
-                )
-                criterion = Model1Loss()
-                train_loader, valid_loader = MangaDataset1.get_dataloader(
-                    texted_images_for_model1, self.setting, train_valid_split=0.2
-                )
-                for epoch in range(self.setting.epochs):
-                    for batch in tqdm(train_loader, leave=False):
-                        optimizer.zero_grad()
+                # TODO: model 1 train, viz
 
-                        pred_bboxes, pred_scores = model(batch["timg"])
-                        total_loss, loc_loss, obj_loss = criterion(
-                            pred_bboxes,
-                            pred_scores,
-                            batch["target_bboxes"],
-                            batch["target_scores"],
-                        )
-                        total_loss.backward()
-                        optimizer.step()
             elif self.setting.model1_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 1 Inference")
                 # TODO: model 1 inference, viz, apply

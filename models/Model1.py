@@ -37,7 +37,7 @@ class Model1(nn.Module):
         return bboxes, scores
 
     @staticmethod
-    def preprocess(
+    def bboxes2tensor(
         bboxes: list[BBox], input_size: tuple[int, int], max_objects: int, device
     ) -> torch.Tensor:
         H, W = input_size
@@ -62,16 +62,18 @@ class Model1(nn.Module):
 
         return target_bboxes_tensor, target_scores_tensor
 
-    def postprocess(
-        self, preds: torch.Tensor, confidence_threshold=0.5, nms_threshold=0.4
+    def tensor2bboxes(
+        self,
+        pred_bboxes: torch.Tensor,
+        pred_scores: torch.Tensor,
+        confidence_threshold=0.5,
+        nms_threshold=0.4,
     ) -> list[BBox]:
         H, W = self.input_size
-        bboxes = preds[:, :, :4]
-        scores = preds[:, :, 4]  # squeeze
         # 1. Confidence Thresholding
-        filter = scores > confidence_threshold
-        bboxes = bboxes[filter]  # (num_filtered, 4)
-        scores = scores[filter]  # (num_filtered,)
+        filter = pred_scores > confidence_threshold
+        bboxes = pred_bboxes[filter.squeeze()]  # (num_filtered, 4)
+        scores = pred_scores[filter]  # (num_filtered,)
         if bboxes.numel() == 0:
             return []
         # 2. 좌표 Denormalization

@@ -19,7 +19,7 @@ class MangaDataset1(Dataset):
     def __getitem__(self, idx: int):
         texted_image = self.texted_images[idx]
         texted_image._resize(self.input_size)
-        target_bboxes, target_scores = Model1.preprocess(
+        target_bboxes, target_scores = Model1.bboxes2tensor(
             texted_image.bboxes, self.input_size, self.max_objects, self.device
         )
         return {
