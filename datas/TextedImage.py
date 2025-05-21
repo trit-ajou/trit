@@ -87,12 +87,13 @@ class TextedImage:
     def merge_cropped(self, cropped_texted_images: list["TextedImage"]):
         for bbox, cropped_texted_image in zip(self.bboxes, cropped_texted_images):
             _bbox = cropped_texted_image.bboxes[0]
-            if cropped_texted_image.orig is not None:
-                self.orig[bbox.slice] = cropped_texted_image.orig[_bbox.slice]
-            if cropped_texted_image.timg is not None:
-                self.timg[bbox.slice] = cropped_texted_image.timg[_bbox.slice]
-            if cropped_texted_image.mask is not None:
-                self.mask[bbox.slice] = cropped_texted_image.mask[_bbox.slice]
+            cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
+            cropped_texted_image.timg = cropped_texted_image.timg[_bbox.slice]
+            cropped_texted_image.mask = cropped_texted_image.mask[_bbox.slice]
+            cropped_texted_image._resize((bbox.height, bbox.width))
+            self.orig[bbox.slice] = cropped_texted_image.orig
+            self.timg[bbox.slice] = cropped_texted_image.timg
+            self.mask[bbox.slice] = cropped_texted_image.mask
 
     def _resize(self, size: tuple[int, int]):
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
@@ -145,7 +146,7 @@ class TextedImage:
         bbox: BBox,  # bbox가 확실히 이미지 내부에 있음을 가정. 따로 clamping 안함.
         img: img_tensor,  # bbox 크기의 tensor
         alpha: img_tensor,  # bbox 크기의 tensor
-    ) -> img_tensor:
+    ):
         # Calc alpha blended region
         cropped_background = background_img[bbox.slice]
         blended_img = img * alpha + (cropped_background * (1.0 - alpha))
@@ -159,7 +160,7 @@ class TextedImage:
         img: img_tensor,
         bbox: BBox,
         margin: int,
-    ) -> img_tensor:
+    ):
         _, H, W = img.shape
         expanded_bbox = bbox._unsafe_expand(margin)
         crop_bbox = bbox._safe_expand(margin, (H, W))
@@ -178,7 +179,7 @@ class TextedImage:
         img: img_tensor,
         bbox: BBox,
         size: tuple[int, int],
-    ) -> tuple[img_tensor, BBox]:
+    ):
         _, H, W = img.shape
         output_h, output_w = size
         bbox_center_x, bbox_center_y = bbox.center
