@@ -80,10 +80,10 @@ class PipelineMgr:
             ]
             model_config = {
                     "model_id" : "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
-                    "prompts" : "high quality manga style image, harmoneous with background",
+                    "prompts" : "grayscale manga style image, harmoneous with background",
                     "negative_prompt" : "color, colorful, blurry, low quality, jpeg artifacts, photo, realistic",
-                    "lora_path" : "models/lora/model3_lora.safetensors",
-                    "lora_weight_name" : "pytorch_lora_weights.safetensors", # 변경가능
+                    "lora_path" : "trit/models/lora",
+                    "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
                     "lr": self.setting.lr,
@@ -95,7 +95,7 @@ class PipelineMgr:
                     "lambda_ssim": 0.5, # ssim 손실 가중치
                     "lora_rank": 4, # LoRA rank 추가
                     "lora_alpha": 4, # LoRA alpha 추가
-                    "output_dir": "datas/images/output/model3_train_viz" # 학습 중 시각화 결과 저장 경로
+                    "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
             }
             if self.setting.model3_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 3")

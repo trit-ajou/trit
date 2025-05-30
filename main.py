@@ -32,7 +32,7 @@ def parse_args():
     parser.add_argument("--margin", type=int, default=4)
     parser.add_argument("--max_objects", type=int, default=1024)
     parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--weight_decay", type=float, default=3e-4)
     parser.add_argument("--vis_interval", type=int, default=1)

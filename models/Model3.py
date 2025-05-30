@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-from diffusers import AutoPipelineForInpainting, StableDiffusionXLPipeline
+from diffusers import AutoPipelineForInpainting, StableDiffusionXLPipeline, StableDiffusionXLInpaintPipeline
 from peft import LoraConfig, get_peft_model
 import torch.nn.functional as F
 from accelerate import Accelerator
@@ -11,7 +11,6 @@ from PIL import Image
 import torchvision.transforms as T
 import os
 import matplotlib.pyplot as plt
-import inspect
 
 class Model3(nn.Module):
     """Masked Inpainting Model
@@ -22,6 +21,16 @@ class Model3(nn.Module):
     def __init__(self, model_config: dict):
         super().__init__()
         self.model_config = model_config
+        
+    @staticmethod
+    def _get_add_time_ids(original_size, crops_coords_top_left, target_size, dtype):
+        """
+        Helper function to create add_time_ids for SDXL.
+        Based on diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl.StableDiffusionXLPipeline._get_add_time_ids
+        """
+        add_time_ids = list(original_size + crops_coords_top_left + target_size)
+        add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
+        return add_time_ids
         
     def forward(self, x): # 사용 x
         return x
@@ -183,7 +192,7 @@ class Model3(nn.Module):
             # 매 에포크 시작 시 캐시 비우기 (선택적, 하지만 OOM 발생 시 유용)
             accelerator.wait_for_everyone()
             torch.cuda.empty_cache()
-            print(f"CUDA cache cleared at the beginning of epoch {epoch+1}.")
+            print(f"CUDA cache cleared at the beginning of epoch {epoch+1}/{self.model_config['epochs']}.")
             
             num_batches = (len(texted_images_for_model3) + self.model_config["batch_size"] - 1) // self.model_config["batch_size"]
             batch_iterator = tqdm(range(num_batches), desc=f"Epoch {epoch+1}/{self.model_config['epochs']}",
@@ -258,10 +267,9 @@ class Model3(nn.Module):
                             text_proj_dim = None
                             if hasattr(text_encoder_2.config, 'projection_dim'):
                                 text_proj_dim = text_encoder_2.config.projection_dim
-                            add_time_ids = self.pipe._get_add_time_ids(
+                            add_time_ids = Model3._get_add_time_ids(
                                 (orig_H, orig_W), (0,0), (orig_H, orig_W), 
-                                dtype=prompt_embeds.dtype,
-                                text_encoder_projection_dim=text_proj_dim 
+                                dtype=prompt_embeds.dtype
                             ).to(accelerator.device)
                             add_time_ids = add_time_ids.repeat(bsz, 1)
                             encoder_hidden_states = prompt_embeds
@@ -342,17 +350,103 @@ class Model3(nn.Module):
                     # --- 학습 후 LoRA 가중치 저장 ---
                     if accelerator.is_main_process and loss < best_loss:
                         best_loss = loss
-                        save_path = os.path.join(self.model_config["lora_path"], f"checkpoint-{global_step}")
+                        save_path = os.path.join(self.model_config["lora_path"], "best_model.safetensors")
+                        
                         # accelerator.unwrap_model(unet).save_pretrained(save_path) # unwrap 필요할 수 있음
                         unet.save_pretrained(save_path) # PEFT 모델의 저장 메서드 사용
                         print(f"LoRA weights saved to {save_path}")
 
     def inference(self, texted_images_for_model3: list[TextedImage]):
-        self.pipe = AutoPipelineForInpainting.from_pretrained(
+        print("Loading pipeline components to CPU first...")
+        # StableDiffusionXLPipeline 대신 StableDiffusionXLInpaintPipeline 사용
+        pipe = StableDiffusionXLInpaintPipeline.from_pretrained(
             self.model_config["model_id"],
-            torch_dtype=torch.float16,
+            torch_dtype=torch.float16, # dtype은 유지하되, device는 지정 안함
             variant="fp16"
-        ).to("cuda")
+        )
+        
+        # LoRA 로드 - 여기서 발생하는 "No LoRA keys associated..." 경고는 정상적이며 무시 가능
+        lora_path = os.path.join(self.model_config["lora_path"], self.model_config["lora_weight_name"])
+        pipe.load_lora_weights(lora_path)
+        
+        # LoRA 가중치를 기본 모델에 융합 (선택적) - 메모리 사용량 감소, 추론 속도 향상
+        pipe.fuse_lora()
+        print("Lora weights loaded and fused successfully.")
+        
+        pipe.to("cuda")
+        
+        # 추론 루프
+        # 결과를 저장할 디렉토리 생성 (model_config에 정의된 output_dir 사용)
+        output_dir = self.model_config.get("output_dir", "datas/images/output/model3_inference_viz") # 기본값 설정
+        os.makedirs(output_dir, exist_ok=True)
+
+        for i, texted_image_item in enumerate(tqdm(texted_images_for_model3, desc="Inference Progress")):
+            # TextedImage에서 PIL 이미지 가져오기
+            try:
+                original_pil = texted_image_item.orig_pil # 원본 PIL (TextedImage에 있다고 가정)
+                text_pil = texted_image_item.timg_pil     # 텍스트 합성된 PIL (TextedImage에 있다고 가정)
+                mask_pil = texted_image_item.mask_pil     # 마스크 PIL (TextedImage에 있다고 가정)
+            except AttributeError:
+                # TextedImage에 orig_pil, timg_pil, mask_pil이 직접 없는 경우 _to_pil() 활용
+                original_pil, text_pil, mask_pil = texted_image_item._to_pil()
+
+            # 파이프라인 입력 준비
+            prompt = self.model_config["prompts"]
+            negative_prompt = self.model_config.get("negative_prompt", "")
+
+            # 추론 실행 (GPU에서 실행)
+            with torch.no_grad():
+                try:
+                    # SDXL Inpainting 파이프라인에서는 text_pil이 아닌 original_pil을 사용하는 것이 맞음
+                    # 사용자가 원본 이미지에서 텍스트 부분만 제거하고 싶을 것이므로
+                    inpainted_image_pil = pipe(
+                        prompt=prompt,
+                        image=original_pil,  # 원본 이미지
+                        mask_image=mask_pil, # 마스크 이미지 (1: 인페인팅할 영역, 0: 보존할 영역)
+                        negative_prompt=negative_prompt,
+                        num_inference_steps=30,  # 성능과 속도의 균형을 위해 30으로 조정
+                        guidance_scale=7.5,     # 가이던스 스케일, 조절 가능
+                        strength=1.0,          # 전체 마스크 영역을 완전히 인페인팅 (0.0-1.0)
+                    ).images[0]
+                except Exception as e:
+                    print(f"Error during inference for image {i}: {e}")
+                    # 오류 발생 시 원본 이미지 사용
+                    inpainted_image_pil = original_pil
+                    continue
+
+            # 시각화 및 저장
+            fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+
+            axes[0].imshow(original_pil)
+            axes[0].set_title("Original")
+            axes[0].axis("off")
+
+            axes[1].imshow(text_pil)
+            axes[1].set_title("Text Image (Input for Model1/2)")
+            axes[1].axis("off")
+
+            axes[2].imshow(mask_pil, cmap='gray')
+            axes[2].set_title("Mask")
+            axes[2].axis("off")
+
+            axes[3].imshow(inpainted_image_pil)
+            axes[3].set_title("Inpainted Result")
+            axes[3].axis("off")
+
+            plt.tight_layout()
+            save_filename = os.path.join(output_dir, f"inpainted_result_{i}.png")
+            plt.savefig(save_filename)
+            plt.close(fig)
+            # print(f"Visualization saved to {save_filename}") # tqdm 사용 시 중복 출력 방지 가능
+
+        print(f"All inference results saved to {output_dir}")
+        return
+        
+            
+            
+            
+        
+        
 
             
             

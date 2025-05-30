@@ -5,3 +5,5 @@ datas/fonts/
 datas/images/
 test.py
 myenv/
+*.zip
+*.safetensors
