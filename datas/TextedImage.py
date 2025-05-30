@@ -74,13 +74,19 @@ class TextedImage:
         _bbox는 원래 이미지에 붙여넣을 때 잘라내야 할 정확한 크기를 저장함."""
         texted_images: list[TextedImage] = []
         for bbox in self.bboxes:
-            orig = self.timg.clone()
-            orig[bbox.slice] = self.orig[bbox.slice]
+            # CPU에서 처리 후 필요할 때만 GPU로 이동
+            orig = self.timg.cpu().clone()
+            orig[bbox.slice] = self.orig.cpu()[bbox.slice]
             orig, _bbox = TextedImage._center_crop(orig, bbox, size)
-            timg, _ = TextedImage._center_crop(self.timg, bbox, size)
-            mask = torch.zeros_like(self.mask)
-            mask[bbox.slice] = self.mask[bbox.slice]
+            
+            timg = self.timg.cpu().clone()
+            timg, _ = TextedImage._center_crop(timg, bbox, size)
+            
+            mask = torch.zeros_like(self.mask, device="cpu")
+            mask[bbox.slice] = self.mask.cpu()[bbox.slice]
             mask, _ = TextedImage._center_crop(mask, bbox, size)
+            
+            # 필요할 때만 GPU로 이동
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 

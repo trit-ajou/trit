@@ -1,8 +1,11 @@
 import argparse
+import os
 
 from .Pipeline import PipelineMgr
 from .Utils import PipelineSetting, ImagePolicy
 from .models.Utils import ModelMode
+
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 
 def parse_args():

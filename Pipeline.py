@@ -71,17 +71,32 @@ class PipelineMgr:
 
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
-            texted_images_for_model3 = [
-                _splitted
-                for texted_image in self.texted_images
-                for _splitted in texted_image.split_center_crop(
-                    self.setting.model3_input_size
-                )
-            ]
+            # texted_images_for_model3 = [
+            #     _splitted
+            #     for texted_image in self.texted_images
+            #     for _splitted in texted_image.split_center_crop(
+            #         self.setting.model3_input_size
+            #     )
+            # ]
+            batch_size = self.setting.batch_size
+            texted_images_for_model3 = []
+            
+            for i in range(0, len(self.texted_images), batch_size):
+                # 현재 배치만 메모리에 로드
+                batch_images = self.texted_images[i:i+batch_size]
+                
+                # 배치 내 각 이미지 처리
+                for texted_image in batch_images:
+                    splits = texted_image.split_center_crop(self.setting.model3_input_size)
+                    texted_images_for_model3.extend(splits)
+                
+                # 배치 처리 후 불필요한 메모리 정리
+                torch.cuda.empty_cache()
+            
             model_config = {
-                    "model_id" : "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
-                    "prompts" : "grayscale manga style image, harmoneous with background",
-                    "negative_prompt" : "color, colorful, blurry, low quality, jpeg artifacts, photo, realistic",
+                    "model_id" : "stable-diffusion-v1-5/stable-diffusion-v1-5",
+                    "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                    "negative_prompt" : "color, colorful, blurry, low quality, jpeg artifacts, photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry, low quality",
                     "lora_path" : "trit/models/lora",
                     "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
@@ -93,8 +108,8 @@ class PipelineMgr:
                     "gradient_accumulation_steps": 4, # 조절 가능 기본값 : 4
                     "validation_epochs": 10, # 검증 주기
                     "lambda_ssim": 0.5, # ssim 손실 가중치
-                    "lora_rank": 4, # LoRA rank 추가
-                    "lora_alpha": 4, # LoRA alpha 추가
+                    "lora_rank": 4, # LoRA rank 값 - 작은 값으로 조정
+                    "lora_alpha": 8, # LoRA alpha 값 - 보통 rank * 2가 적당
                     "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
             }
             if self.setting.model3_mode == ModelMode.TRAIN:
