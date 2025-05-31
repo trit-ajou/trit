@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--vis_interval", type=int, default=1)
     parser.add_argument("--ckpt_interval", type=int, default=5)
     parser.add_argument("--images_dir", type=str, default="datas/images/clear")  
+    paser.add_argument("--lora_rank", type=int, default=8)
     args = parser.parse_args()
     return args
 
@@ -81,6 +82,10 @@ if __name__ == "__main__":
     setting.vis_interval = args.vis_interval
     setting.ckpt_interval = args.ckpt_interval
     setting.clear_img_dir = args.images_dir
+    setting.lora_rank = args.lora_rank
+    setting.lora_alpha = setting.lora_rank * 2
+    
+    
 
     pipeline = PipelineMgr(setting, policy)
     pipeline.run()

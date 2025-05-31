@@ -106,8 +106,8 @@ class PipelineMgr:
                     "max_train_timesteps": 1000, # 조절 가능 기본값 : 1000
                     "guidance_scale": 7.5, #  기본값 : 7.5
                     "lambda_ssim": 0.8, # ssim 손실 가중치
-                    "lora_rank": 2, # LoRA rank 값 - 작은 값으로 조정
-                    "lora_alpha": 4, # LoRA alpha 값 - 보통 rank * 2가 적당
+                    "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
+                    "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
                     "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
                     }
             accelerator = Accelerator(
