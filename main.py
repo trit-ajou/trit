@@ -80,6 +80,7 @@ if __name__ == "__main__":
     setting.weight_decay = args.weight_decay
     setting.vis_interval = args.vis_interval
     setting.ckpt_interval = args.ckpt_interval
+    setting.clear_img_dir = args.images_dir
 
     pipeline = PipelineMgr(setting, policy)
     pipeline.run()
