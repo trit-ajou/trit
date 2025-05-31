@@ -1,7 +1,7 @@
 import argparse
 
 from .Pipeline import PipelineMgr
-from .Utils import PipelineSetting, ImagePolicy
+from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 from .models.Utils import ModelMode
 
 
@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=3e-4)
     parser.add_argument("--vis_interval", type=int, default=1)
     parser.add_argument("--ckpt_interval", type=int, default=5)
+    parser.add_argument("--timg_generation", type=str, default="generate_only", choices=["generate_only", "generate_save", "skip"])
     args = parser.parse_args()
     return args
 
@@ -46,6 +47,12 @@ if __name__ == "__main__":
     policy = ImagePolicy()
 
     args = parse_args()
+    if args.timg_generation == "generate_only":
+        setting.timg_generation = TimgGeneration.generate_only
+    elif args.timg_generation == "generate_save":
+        setting.timg_generation = TimgGeneration.generate_save
+    elif args.timg_generation == "skip":
+        setting.timg_generation = TimgGeneration.skip
     if args.model1 == "skip":
         setting.model1_mode = ModelMode.SKIP
     elif args.model1 == "train":

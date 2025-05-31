@@ -1,7 +1,17 @@
 import torch
 import torch.nn as nn
 import os
-
+from collections import OrderedDict
+def copyStateDict(state_dict):
+    if list(state_dict.keys())[0].startswith("module"):
+        start_idx = 1
+    else:
+        start_idx = 0
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        name = ".".join(k.split(".")[start_idx:])
+        new_state_dict[name] = v
+    return new_state_dict
 
 class BaseModel(nn.Module):
     def __init__(self, device=None):
@@ -34,8 +44,12 @@ class BaseModel(nn.Module):
             return 0  # Return epoch 0 to indicate training from the beginning
 
         try:
+
             checkpoint = torch.load(model_path, map_location=self.device)
-            self.load_state_dict(checkpoint["model_state_dict"])
+            if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                self.load_state_dict(checkpoint["model_state_dict"])
+            elif isinstance(checkpoint, dict):
+                self.load_state_dict(copyStateDict(checkpoint))
 
             # Epochs are 0-indexed during saving, so start_epoch is epoch + 1
             start_epoch = checkpoint.get("epoch", -1) + 1

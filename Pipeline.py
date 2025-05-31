@@ -5,8 +5,7 @@ from torch.utils.data import DataLoader, random_split
 import os  # Added for path joining and directory creation
 import torchvision.transforms.functional as VTF  # Added for visualization
 from PIL import ImageDraw  # Added for visualization
-
-
+from .models.craft.test import test_net
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
 from .datas.Dataset import (
@@ -15,11 +14,11 @@ from .datas.Dataset import (
     MangaDataset3,
 )  # Added MangaDataset3
 from .datas.Utils import BBox
-from .models.Utils import ModelMode
+from .models.Utils import ModelMode, tensor_rgb_to_cv2
 from .models.Model1 import Model1
 from .models.Model2 import Model2
 from .models.Model3 import Model3  # Added Model3
-from .Utils import PipelineSetting, ImagePolicy
+from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 import matplotlib.pyplot as plt
 
 
@@ -59,13 +58,27 @@ class PipelineMgr:
         # Ensure output_img_dir and ckpt_dir exist
         os.makedirs(self.setting.output_img_dir, exist_ok=True)
         os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+        self.texted_images = None
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################
         print("[Pipeline] Loading Images")
-        self.texted_images: list[TextedImage] = self.imageloader.load_images(
-            self.setting.num_images, self.setting.clear_img_dir
-        )
+
+        if self.setting.timg_generation != TimgGeneration.skip:
+            self.texted_images: list[TextedImage] = self.imageloader.load_images(
+                self.setting.num_images, self.setting.clear_img_dir
+            )
+            if self.setting.timg_generation == TimgGeneration.generate_save:
+                for i, text_image in enumerate(self.texted_images):
+                    # Use a deepcopy of the *updated* self.texted_images[i] for visualization
+                    try:
+                        # Convert timg to PIL to draw on it
+                        pil_timg = VTF.to_pil_image(text_image.timg.cpu())
+                        fname = self.setting.texted_img_dir + f"/timg_gen_{i:04d}.png"
+                        pil_timg.save(fname)
+                        print(f"[Pipeline] saved → {fname}")
+                    except Exception as e:
+                        print(f"[Pipeline] save error on sample {i}: {e}")
 
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
@@ -97,6 +110,8 @@ class PipelineMgr:
                     shuffle=True,
                     num_workers=self.setting.num_workers,
                     collate_fn=detection_collate_fn,
+                    persistent_workers= True,
+                    pin_memory = True,
                 )
 
                 optimizer = torch.optim.Adam(
@@ -205,11 +220,13 @@ class PipelineMgr:
 
             elif self.setting.model1_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 1 Inference")
-                model1 = Model1(device=self.setting.device)
+
+                model1 = Model1()
                 model1_ckpt_path = os.path.join(self.setting.ckpt_dir, "model1.pth")
                 model1.load_checkpoint(
                     model1_ckpt_path
                 )  # Optimizer not needed for inference
+                model1.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
                 model1.eval()
 
                 print(
@@ -218,40 +235,72 @@ class PipelineMgr:
                 for idx, texted_image_copy in enumerate(
                     tqdm(texted_images_for_model1, desc="Model1 Inference")
                 ):
-                    # Model1.forward expects a list of tensors and handles moving to device
-                    img_tensor_list = [texted_image_copy.timg]
 
-                    with torch.no_grad():
-                        predictions = model1(img_tensor_list)
+                    cv_img = tensor_rgb_to_cv2(texted_image_copy.timg)
+                    bboxes, polys, score_text = test_net(
+                        model1,  # = CRAFT network
+                        cv_img,  # 변환한 이미지
+                        0.7, #text_threshold
+                        0.4, #link_threshold
+                        0.4, #low_text
+                        cuda=(self.setting.device != "cpu"),
+                        poly=False
+                    )
+                    # [DBG-A] test_net 내부 출력
+                    print(f"[DBG] img {idx} → "
+                          f"score_text.max={score_text.max():.3f}, "
+                          f"raw_boxes={len(bboxes)}")
 
-                    new_bboxes_list = []
-                    if predictions and len(predictions) > 0:
-                        pred_dict = predictions[
-                            0
-                        ]  # Predictions for the first (and only) image
-                        pred_boxes = pred_dict["boxes"].cpu()
-                        pred_scores = pred_dict["scores"].cpu()
+                    # ───────── 모델 weight / device 확인 (첫 루프에서만) ─────────
+                    if idx == 0:
+                        p = next(model1.parameters())
+                        print("[DBG] model weight mean:", p.mean().item())
+                        print("[DBG] model weight device:", p.device)
+                    print("----------------bboxes---------------")
+                    print(bboxes)
+                    print("---------------------------------")
+                    def to_rect(pts):
+                        """
+                        pts : np.ndarray([[x, y], ...])     ─ shape (4,2) or (N,2)
+                        return : [x1, y1, x2, y2]  (좌상, 우하)
+                        """
+                        if pts is None or len(pts) == 0:
+                            return None
+                        xs, ys = pts[:, 0], pts[:, 1]
+                        return BBox(int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
 
-                        score_threshold = 0.5  # Hardcoded threshold
-                        keep_indices = pred_scores > score_threshold
-
-                        final_boxes_tensor = pred_boxes[keep_indices]
-
-                        for box_coords in final_boxes_tensor:
-                            x1, y1, x2, y2 = box_coords.tolist()
-                            # Ensure coordinates are within image bounds and valid
-                            img_h, img_w = texted_image_copy.img_size
-                            x1 = max(0, min(x1, img_w - 1))
-                            y1 = max(0, min(y1, img_h - 1))
-                            x2 = max(0, min(x2, img_w - 1))
-                            y2 = max(0, min(y2, img_h - 1))
-                            if x1 < x2 and y1 < y2:  # Ensure valid box
-                                new_bboxes_list.append(
-                                    BBox(int(x1), int(y1), int(x2), int(y2))
-                                )
+                    rects = [to_rect(b) for b in bboxes]  # (4,2) → (x1,y1,x2,y2)
+                    print("----------------rects---------------")
+                    print(rects)
+                    print("---------------------------------")
+                    # new_bboxes_list = []
+                    # if predictions and len(predictions) > 0:
+                    #     pred_dict = predictions[
+                    #         0
+                    #     ]  # Predictions for the first (and only) image
+                    #     pred_boxes = pred_dict["boxes"].cpu()
+                    #     pred_scores = pred_dict["scores"].cpu()
+                    #
+                    #     score_threshold = 0.5  # Hardcoded threshold
+                    #     keep_indices = pred_scores > score_threshold
+                    #
+                    #     final_boxes_tensor = pred_boxes[keep_indices]
+                    #
+                    #     for box_coords in final_boxes_tensor:
+                    #         x1, y1, x2, y2 = box_coords.tolist()
+                    #         # Ensure coordinates are within image bounds and valid
+                    #         img_h, img_w = texted_image_copy.img_size
+                    #         x1 = max(0, min(x1, img_w - 1))
+                    #         y1 = max(0, min(y1, img_h - 1))
+                    #         x2 = max(0, min(x2, img_w - 1))
+                    #         y2 = max(0, min(y2, img_h - 1))
+                    #         if x1 < x2 and y1 < y2:  # Ensure valid box
+                    #             new_bboxes_list.append(
+                    #                 BBox(int(x1), int(y1), int(x2), int(y2))
+                    #             )
 
                     # Update the bboxes in the ORIGINAL TextedImage object in self.texted_images
-                    self.texted_images[idx].bboxes = new_bboxes_list
+                    self.texted_images[idx].bboxes = rects
 
                 print(
                     "[Pipeline] Model 1 Inference complete. BBoxes in self.texted_images updated."

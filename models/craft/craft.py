@@ -1,13 +1,14 @@
-import torch
-import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from .BaseModel import BaseModel  # Corrected import path based on file structure
-from typing import List, Dict, Optional  # For type hinting
-from .craft.basenet.vgg16_bn import vgg16_bn, init_weights
+"""  
+Copyright (c) 2019-present NAVER Corp.
+MIT License
+"""
+
+# -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from basenet.vgg16_bn import vgg16_bn, init_weights
 
 class double_conv(nn.Module):
     def __init__(self, in_ch, mid_ch, out_ch):
@@ -25,10 +26,10 @@ class double_conv(nn.Module):
         x = self.conv(x)
         return x
 
-# CRAFT ver.
-class Model1(BaseModel):
+
+class CRAFT(nn.Module):
     def __init__(self, pretrained=False, freeze=False):
-        super().__init__()
+        super(CRAFT, self).__init__()
 
         """ Base network """
         self.basenet = vgg16_bn(pretrained, freeze)
@@ -53,7 +54,7 @@ class Model1(BaseModel):
         init_weights(self.upconv3.modules())
         init_weights(self.upconv4.modules())
         init_weights(self.conv_cls.modules())
-
+        
     def forward(self, x):
         """ Base network """
         sources = self.basenet(x)

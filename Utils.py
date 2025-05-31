@@ -3,18 +3,22 @@ import torch
 from dataclasses import dataclass
 
 from .models.Utils import ModelMode
-
-
+from enum import Enum
+class TimgGeneration(Enum):
+    generate_only = 0
+    generate_save = 1
+    skip = 2
 @dataclass
 class PipelineSetting:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     use_amp = True
-    num_workers = 0
+    num_workers = 8
 
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
     font_dir = f"{_script_dir}/datas/fonts"
     clear_img_dir = f"{_script_dir}/datas/images/clear"
+    texted_img_dir = f"{_script_dir}/datas/images/texted"
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
 
@@ -31,7 +35,7 @@ class PipelineSetting:
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
-
+    timg_generation = TimgGeneration.generate_only
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP
     model3_mode = ModelMode.SKIP
@@ -140,3 +144,4 @@ class ImagePolicy:
     # 예를 들어 font_size_ratio를 더 크게, rotation_angle 범위를 더 넓게,
     # 외곽선을 더 두껍고 화려하게, 변형을 더 강하게 적용.
     sfx_style_prob: float = 0.1  # SFX 스타일 적용 확률
+
