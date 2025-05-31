@@ -148,16 +148,21 @@ class TextedImage:
 
     @staticmethod
     def _alpha_blend(
-        background_img: img_tensor,
+        background_img: img_tensor, # CPU 텐서로 가정
         bbox: BBox,  # bbox가 확실히 이미지 내부에 있음을 가정. 따로 clamping 안함.
-        img: img_tensor,  # bbox 크기의 tensor
-        alpha: img_tensor,  # bbox 크기의 tensor
+        img: img_tensor,  # CPU 텐서로 가정 (bbox 크기의 tensor)
+        alpha: img_tensor,  # CPU 텐서로 가정 (bbox 크기의 tensor)
     ):
+        # 모든 입력 텐서가 CPU에 있는지 확인 또는 명시적으로 CPU로 이동
+        background_img = background_img.cpu()
+        img = img.cpu()
+        alpha = alpha.cpu()
+
         # Calc alpha blended region
         cropped_background = background_img[bbox.slice]
         blended_img = img * alpha + (cropped_background * (1.0 - alpha))
         # Paste
-        output_image = background_img.clone()  # 원본수정방지
+        output_image = background_img.clone()  # 원본수정방지 (CPU에서 복제)
         output_image[bbox.slice] = blended_img
         return output_image
 

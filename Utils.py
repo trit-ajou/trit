@@ -20,7 +20,7 @@ class PipelineSetting:
 
     model1_input_size = (256, 256)
     model2_input_size = (256, 256)
-    model3_input_size = (512, 512)
+    model3_input_size = (256, 256)
 
     num_images = 128
     use_noise = False
