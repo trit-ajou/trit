@@ -40,8 +40,8 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=3e-4)
     parser.add_argument("--vis_interval", type=int, default=1)
     parser.add_argument("--ckpt_interval", type=int, default=5)
-    parser.add_argument("--images_dir", type=str, default="datas/images/clear")  
-    paser.add_argument("--lora_rank", type=int, default=8)
+    parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
+    parser.add_argument("--lora_rank", type=int, default=8)
     args = parser.parse_args()
     return args
 
