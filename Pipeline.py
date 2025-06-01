@@ -18,8 +18,15 @@ from .models.Utils import ModelMode, tensor_rgb_to_cv2
 from .models.Model1 import Model1
 from .models.Model2 import Model2
 from .models.Model3 import Model3  # Added Model3
-from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
+from .Utils import PipelineSetting, ImagePolicy, TimgGeneration, save_timgs, load_timgs
 import matplotlib.pyplot as plt
+import os, json, glob
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
+from torchvision.transforms.functional import to_pil_image, to_tensor
+from PIL import Image
+
+
 
 
 # Collate function for Model1 DataLoader
@@ -58,27 +65,32 @@ class PipelineMgr:
         # Ensure output_img_dir and ckpt_dir exist
         os.makedirs(self.setting.output_img_dir, exist_ok=True)
         os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+
         self.texted_images = None
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################
-        print("[Pipeline] Loading Images")
 
-        if self.setting.timg_generation != TimgGeneration.skip:
-            self.texted_images: list[TextedImage] = self.imageloader.load_images(
-                self.setting.num_images, self.setting.clear_img_dir
-            )
-            if self.setting.timg_generation == TimgGeneration.generate_save:
-                for i, text_image in enumerate(self.texted_images):
-                    # Use a deepcopy of the *updated* self.texted_images[i] for visualization
-                    try:
-                        # Convert timg to PIL to draw on it
-                        pil_timg = VTF.to_pil_image(text_image.timg.cpu())
-                        fname = self.setting.texted_img_dir + f"/timg_gen_{i:04d}.png"
-                        pil_timg.save(fname)
-                        print(f"[Pipeline] saved → {fname}")
-                    except Exception as e:
-                        print(f"[Pipeline] save error on sample {i}: {e}")
+        if self.setting.timg_generation == TimgGeneration.generate_only:
+            print("[Pipeline] Generating TextedImages")
+            self.texted_images = self.imageloader.load_images(
+                self.setting.num_images, self.setting.clear_img_dir)
+
+        elif self.setting.timg_generation == TimgGeneration.generate_save:
+            print("[Pipeline] Generating TextedImages and Save")
+            self.texted_images = self.imageloader.load_images(
+                self.setting.num_images, self.setting.clear_img_dir)
+            save_timgs(self.texted_images, self.setting.texted_img_dir)
+
+        elif self.setting.timg_generation == TimgGeneration.use_saved:
+            print("[Pipeline] Loading Saved TextedImages")
+            self.texted_images = load_timgs(self.setting.texted_img_dir, self.setting.device)
+
+        elif self.setting.timg_generation == TimgGeneration.test:
+            '''
+                todo: 테스트 모드일때 test에서 이미지 로드하기
+            '''
+
 
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
@@ -94,10 +106,9 @@ class PipelineMgr:
             texted_images_for_model1 = [
                 deepcopy(texted_image) for texted_image in self.texted_images
             ]
-
             if self.setting.model1_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 1")
-                model1 = Model1(device=self.setting.device)
+                model1 = Model1()
                 # model1.to(self.setting.device) # This is handled by BaseModel's __init__
 
                 # Consider splitting texted_images_for_model1 into train/val sets for robust evaluation.
@@ -247,18 +258,16 @@ class PipelineMgr:
                         poly=False
                     )
                     # [DBG-A] test_net 내부 출력
-                    print(f"[DBG] img {idx} → "
-                          f"score_text.max={score_text.max():.3f}, "
-                          f"raw_boxes={len(bboxes)}")
+                    # print(f"[DBG] img {idx} → "
+                    #       f"score_text.max={score_text.max():.3f}, "
+                    #       f"raw_boxes={len(bboxes)}")
 
                     # ───────── 모델 weight / device 확인 (첫 루프에서만) ─────────
-                    if idx == 0:
-                        p = next(model1.parameters())
-                        print("[DBG] model weight mean:", p.mean().item())
-                        print("[DBG] model weight device:", p.device)
-                    print("----------------bboxes---------------")
-                    print(bboxes)
-                    print("---------------------------------")
+                    # if idx == 0:
+                    #     p = next(model1.parameters())
+                    #     print("[DBG] model weight mean:", p.mean().item())
+                    #     print("[DBG] model weight device:", p.device)
+
                     def to_rect(pts):
                         """
                         pts : np.ndarray([[x, y], ...])     ─ shape (4,2) or (N,2)
@@ -270,9 +279,9 @@ class PipelineMgr:
                         return BBox(int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
 
                     rects = [to_rect(b) for b in bboxes]  # (4,2) → (x1,y1,x2,y2)
-                    print("----------------rects---------------")
-                    print(rects)
-                    print("---------------------------------")
+                    # print("----------------rects---------------")
+                    # print(rects)
+                    # print("---------------------------------")
                     # new_bboxes_list = []
                     # if predictions and len(predictions) > 0:
                     #     pred_dict = predictions[

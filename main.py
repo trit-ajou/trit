@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=3e-4)
     parser.add_argument("--vis_interval", type=int, default=1)
     parser.add_argument("--ckpt_interval", type=int, default=5)
-    parser.add_argument("--timg_generation", type=str, default="generate_only", choices=["generate_only", "generate_save", "skip"])
+    parser.add_argument("--timg_generation", type=str, default="generate_only", choices=["generate_only", "generate_save", "use_saved", "test"])
     args = parser.parse_args()
     return args
 
@@ -51,8 +51,10 @@ if __name__ == "__main__":
         setting.timg_generation = TimgGeneration.generate_only
     elif args.timg_generation == "generate_save":
         setting.timg_generation = TimgGeneration.generate_save
-    elif args.timg_generation == "skip":
-        setting.timg_generation = TimgGeneration.skip
+    elif args.timg_generation == "use_saved":
+        setting.timg_generation = TimgGeneration.use_saved
+    elif args.timg_generation == "test":
+        setting.timg_generation = TimgGeneration.test
     if args.model1 == "skip":
         setting.model1_mode = ModelMode.SKIP
     elif args.model1 == "train":

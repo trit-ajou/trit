@@ -82,15 +82,15 @@ def test_net(net, image, text_threshold, link_threshold, low_text, cuda, poly, r
     # make score and link map
     score_text = y[0,:,:,0].cpu().data.numpy()
     score_link = y[0,:,:,1].cpu().data.numpy()
-    print("SCore text-------------------------------")
-    print(score_text)
-    print("--------------------------------------")
+    # print("SCore text-------------------------------")
+    # print(score_text)
+    # print("--------------------------------------")
 
     # Post-processing
     boxes, polys = craft_utils.getDetBoxes(score_text, score_link, text_threshold, link_threshold, low_text, poly)
-    print("boxes----------------------------")
-    print(boxes)
-    print("-----------------------------------")
+    # print("boxes----------------------------")
+    # print(boxes)
+    # print("-----------------------------------")
     # coordinate adjustment
     boxes = craft_utils.adjustResultCoordinates(boxes, ratio_w, ratio_h)
     for k in range(len(polys)):

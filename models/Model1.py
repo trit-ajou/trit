@@ -1,6 +1,5 @@
 import torch
 import torchvision
-from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from .BaseModel import BaseModel  # Corrected import path based on file structure
 from typing import List, Dict, Optional  # For type hinting
 from .craft.basenet.vgg16_bn import vgg16_bn, init_weights
