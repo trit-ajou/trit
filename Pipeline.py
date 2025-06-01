@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, random_split
 import os  # Added for path joining and directory creation
 import torchvision.transforms.functional as VTF  # Added for visualization
 from PIL import ImageDraw  # Added for visualization
-from .models.craft.test import test_net
+from .models.model1_util.test import test_net
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
 from .datas.Dataset import (
@@ -84,7 +84,7 @@ class PipelineMgr:
 
         elif self.setting.timg_generation == TimgGeneration.use_saved:
             print("[Pipeline] Loading Saved TextedImages")
-            self.texted_images = load_timgs(self.setting.texted_img_dir, self.setting.device)
+            self.texted_images = load_timgs(self.setting.texted_img_dir, self.setting.device, max_num = self.setting.num_images)
 
         elif self.setting.timg_generation == TimgGeneration.test:
             '''
@@ -251,11 +251,9 @@ class PipelineMgr:
                     bboxes, polys, score_text = test_net(
                         model1,  # = CRAFT network
                         cv_img,  # 변환한 이미지
-                        0.7, #text_threshold
-                        0.4, #link_threshold
-                        0.4, #low_text
                         cuda=(self.setting.device != "cpu"),
-                        poly=False
+                        poly=False,
+
                     )
                     # [DBG-A] test_net 내부 출력
                     # print(f"[DBG] img {idx} → "

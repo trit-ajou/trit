@@ -8,7 +8,7 @@ Created : 2025-05-23
 import os
 import cv2
 import numpy as np
-from craft_utils import getBlockBoxes
+from .craft_utils import getBlockBoxes
 
 # ---------------------------------------------------------------------------
 # 1) 4-점(또는 N-점) → (x1, y1, x2, y2) 축정렬 직사각형

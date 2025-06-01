@@ -1,4 +1,4 @@
-import os, glob
+import os, glob, random
 import torch
 from dataclasses import dataclass
 
@@ -209,13 +209,18 @@ def _load_one(json_path: str, base_dir: str, device):
     return TextedImage(orig, timg, mask, bboxes)
 
 
-def load_timgs(base_dir: str, device, num_threads: int = 8) -> List["TextedImage"]:
+def load_timgs(base_dir: str, device, max_num:int|None = None, shuffle:bool = False, num_threads: int = 8) -> List[TextedImage]:
     """저장된 timg_XXXX.json 세트를 병렬 로드하여 TextedImage 리스트로 반환."""
     json_files = sorted(glob.glob(base_dir + "/timg_*.json"))
     if not json_files:
         raise RuntimeError(f"No JSON meta files in {base_dir}")
+    # ── 개수 제한 & 셔플 ───────────────────────────
+    if shuffle:
+        random.shuffle(json_files)
+    if max_num is not None:
+        json_files = json_files[:max_num]
 
-    timgs: [TextedImage] = []
+    timgs: List[TextedImage] = []
     with ThreadPoolExecutor(max_workers=num_threads) as pool:
         futures = [pool.submit(_load_one, jf, base_dir, device) for jf in json_files]
         for fu in futures:
