@@ -71,25 +71,13 @@ class PipelineMgr:
 
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
-            # texted_images_for_model3 = [
-            #     _splitted
-            #     for texted_image in self.texted_images
-            #     for _splitted in texted_image.split_center_crop(
-            #         self.setting.model3_input_size
-            #     )
-            # ]
-            batch_size = self.setting.batch_size
-            texted_images_for_model3 = []
-            
-            for i in range(0, len(self.texted_images), batch_size):
-                # 현재 배치만 메모리에 로드
-                batch_images = self.texted_images[i:i+batch_size]
-                # 배치 내 각 이미지 처리
-                for texted_image in batch_images:
-                    splits = texted_image.split_center_crop(self.setting.model3_input_size)
-                    texted_images_for_model3.extend(splits)
-                # 배치 처리 후 불필요한 메모리 정리
-                torch.cuda.empty_cache()
+            texted_images_for_model3 = [
+                _splitted
+                for texted_image in self.texted_images
+                for _splitted in texted_image.split_center_crop(
+                    self.setting.model3_input_size
+                )
+            ]
             
             model_config = {
                     "model_id" : "stabilityai/stable-diffusion-3.5-medium",
@@ -99,6 +87,7 @@ class PipelineMgr:
                     "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
+                    "inference_steps" : 1, # 기본값 : 10
                     "lr": 1e-6, # 기본값 : 1e-6
                     "weight_decay": 3e-4, # 기본값 : 3e-4
                     "input_size": self.setting.model3_input_size,
