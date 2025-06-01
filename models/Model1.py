@@ -38,7 +38,7 @@ class Model1(BaseModel):
         self.upconv3 = _DoubleConv(256, 128, 64)
         self.upconv4 = _DoubleConv(128, 64, 32)
 
-        num_class = 2
+        num_class = 2 # Region Score, Affinity Score
         self.conv_cls = nn.Sequential(
             nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.ReLU(inplace=True),
             nn.Conv2d(32, 32, kernel_size=3, padding=1), nn.ReLU(inplace=True),

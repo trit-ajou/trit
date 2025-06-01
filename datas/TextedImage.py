@@ -5,8 +5,25 @@ from torch import Tensor as img_tensor
 from PIL import Image, ImageDraw
 
 from .Utils import BBox
+import json, glob, random, os
+from torchvision.transforms.functional import to_pil_image, to_tensor
+from PIL import Image
+from typing import List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+import numpy as np
 
-
+class CharInfo:
+    def __init__(self, polygon: np.ndarray, char_content: str, word_id: int):
+        """
+        CRAFT GT 생성을 위한 문자 정보.
+        polygon: 문자의 4개 꼭짓점 좌표 (4x2 NumPy array, [[x1,y1], [x2,y2], [x3,y3], [x4,y4]])
+                 이미지 전체 좌표계 기준.
+        char_content: 실제 문자 (e.g., 'A', '가')
+        word_id: 이 문자가 속한 단어(또는 텍스트 덩어리)의 고유 ID
+        """
+        self.polygon = polygon
+        self.char_content = char_content
+        self.word_id = word_id
 class TextedImage:
     def __init__(
         self,
@@ -14,11 +31,19 @@ class TextedImage:
         timg: img_tensor,
         mask: img_tensor,
         bboxes: list[BBox],
+        # --- CRAFT 학습용 추가 필드 (Optional) ---
+        all_char_infos: Optional[List[CharInfo]] = None, # 이미지 내 모든 문자의 정보 리스트
+        region_score_map: Optional[torch.Tensor] = None, # (1, H/2, W/2)
+        affinity_score_map: Optional[torch.Tensor] = None, # (1, H/2, W/2)
     ):
         self.orig = orig  # Original image (C, H, W)
         self.timg = timg  # Image with text (C, H, W)
         self.mask = mask  # Binay pixel-wise mask (1, H, W)
         self.bboxes = bboxes
+
+        self.all_char_infos = all_char_infos
+        self.region_score_map = region_score_map
+        self.affinity_score_map = affinity_score_map
 
     @property
     def img_size(self):
@@ -230,3 +255,76 @@ class TextedImage:
         plt.tight_layout()
         plt.savefig(dir + "/" + filename)
         plt.close()
+def _save_one(idx: int, txt_img, out_dir: str):
+    os.makedirs(out_dir, exist_ok=True)
+    oimg = f"oimg_{idx:04d}.png"
+    timg = f"timg_{idx:04d}.png"
+    mask = f"timg_{idx:04d}_mask.png"
+    meta = f"timg_{idx:04d}.json"
+
+    try:
+        to_pil_image(txt_img.orig.cpu()).save(out_dir + "/" + oimg)
+        to_pil_image(txt_img.timg.cpu()).save(out_dir + "/" + timg)
+        to_pil_image(txt_img.mask.squeeze(0).cpu()).save(out_dir + "/" + mask)
+
+        data = {
+            "orig": oimg,
+            "img":  timg,
+            "mask": mask,
+            "bboxes": [[b.x1, b.y1, b.x2, b.y2] for b in txt_img.bboxes],
+        }
+        with open(out_dir + "/" + meta, "w") as f:
+            json.dump(data, f, indent=2)
+        # print(f"[save] {meta} OK")
+    except Exception as e:
+        print(f"[save error] idx {idx}: {e}")
+
+
+def save_timgs(timgs: List[TextedImage], out_dir: str, num_threads: int = 8):
+    """병렬로 TextedImage 리스트를 디스크에 저장한다."""
+    with ThreadPoolExecutor(max_workers=num_threads) as pool:
+        for i, ti in enumerate(timgs):
+            pool.submit(_save_one, i, ti, out_dir)
+    print(f"[Pipeline] all({len(timgs)}) timg/meta saved.")
+
+
+# ─────────────────────────────────────────────
+
+def _load_one(json_path: str, base_dir: str, device):
+    from .Utils import BBox       # 로컬에서 불러도 되도록
+
+
+    with open(json_path) as f:
+        meta = json.load(f)
+
+    orig = to_tensor(Image.open(base_dir + "/" + meta["orig"]).convert("RGB")).to(device)
+    if orig.dim() == 4: orig = orig.squeeze(0)
+
+    timg = to_tensor(Image.open(base_dir + "/" + meta["img"]).convert("RGB")).to(device)
+    if timg.dim() == 4: timg = timg.squeeze(0)
+
+    mask = to_tensor(Image.open(base_dir + "/" + meta["mask"]).convert("L")).to(device)
+    if mask.dim() == 3: mask = mask.squeeze(0)
+    mask = mask.unsqueeze(0)
+
+    bboxes = [BBox(*pts) for pts in meta["bboxes"]]
+    return TextedImage(orig, timg, mask, bboxes)
+
+
+def load_timgs(base_dir: str, device, max_num:int|None = None, shuffle:bool = False, num_threads: int = 8) -> List[TextedImage]:
+    """저장된 timg_XXXX.json 세트를 병렬 로드하여 TextedImage 리스트로 반환."""
+    json_files = sorted(glob.glob(base_dir + "/timg_*.json"))
+    if not json_files:
+        raise RuntimeError(f"No JSON meta files in {base_dir}")
+    # ── 개수 제한 & 셔플 ───────────────────────────
+    if shuffle:
+        random.shuffle(json_files)
+    if max_num is not None:
+        json_files = json_files[:max_num]
+
+    timgs: List[TextedImage] = []
+    with ThreadPoolExecutor(max_workers=num_threads) as pool:
+        futures = [pool.submit(_load_one, jf, base_dir, device) for jf in json_files]
+        for fu in futures:
+            timgs.append(fu.result())
+    return timgs

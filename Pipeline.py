@@ -7,7 +7,7 @@ import torchvision.transforms.functional as VTF  # Added for visualization
 from PIL import ImageDraw  # Added for visualization
 from .models.model1_util.test import test_net
 from .datas.ImageLoader import ImageLoader
-from .datas.TextedImage import TextedImage
+from .datas.TextedImage import TextedImage, save_timgs, load_timgs
 from .datas.Dataset import (
     MangaDataset1,
     MangaDataset2,
@@ -18,7 +18,7 @@ from .models.Utils import ModelMode, tensor_rgb_to_cv2
 from .models.Model1 import Model1
 from .models.Model2 import Model2
 from .models.Model3 import Model3  # Added Model3
-from .Utils import PipelineSetting, ImagePolicy, TimgGeneration, save_timgs, load_timgs
+from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 import matplotlib.pyplot as plt
 import os, json, glob
 from concurrent.futures import ThreadPoolExecutor
