@@ -31,6 +31,8 @@ class PipelineSetting:
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
+    lora_rank = 8
+    lora_alpha = 16
 
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP

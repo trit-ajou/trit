@@ -105,12 +105,10 @@ class PipelineMgr:
                 )
             if self.setting.model3_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 3")
-                #accelerator  생성
-                
-                model3 = Model3(model_config) 
-                print("[Pipeline] Calling model3.lora_train...") 
-                model3.lora_train(texted_images_for_model3, accelerator)
-                
+                model3 = Model3(model_config, accelerator)
+                print("[Pipeline] Calling model3.lora_train...")
+                model3.lora_train(texted_images_for_model3)
+
             elif self.setting.model3_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 3 Inference")
                 # TODO: model 3 inference, viz, apply

@@ -1,19 +1,22 @@
+import math
 import torch
 import os
 import numpy as np
+import gc
 import torch.nn.functional as F
 from ..datas.TextedImage import TextedImage
-from torch import nn
-from diffusers import SD3Transformer2DModel, StableDiffusion3Pipeline
-from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
-from accelerate import Accelerator
+from torch import FloatTensor, nn
+from torchvision import transforms # 이미지 전처리를 위해 추가 임포트
 from tqdm import tqdm
 from pytorch_msssim import ms_ssim
+from diffusers.schedulers.scheduling_ddim import DDIMScheduler
+from diffusers.models.transformers.transformer_sd3 import SD3Transformer2DModel
+from diffusers.pipelines.stable_diffusion_3.pipeline_stable_diffusion_3 import StableDiffusion3Pipeline
+from diffusers.optimization import get_scheduler
+from accelerate import Accelerator
 from peft import get_peft_model, LoraConfig, PeftModel
-import gc
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
-from torchvision import transforms # 이미지 전처리를 위해 추가 임포트
 def identity_collate(batch):
     return batch
 
@@ -38,7 +41,170 @@ class Model3(nn.Module):
         weight_dtype = torch.float16
         model_id = self.model_config["model_id"]
         lora_weights_path = self.model_config["lora_path"]
+        num_epochs = self.model_config.get("epochs", 10)
+        batch_size = self.model_config.get("batch_size", 4)
         
+        
+        # 파이프라인 로딩
+        try:
+            pipe = StableDiffusion3Pipeline.from_pretrained(
+                model_id,
+                torch_dtype=weight_dtype,
+            )
+            pipe.to(self.accelerator.device)
+            print(f"SD3 pipeline loaded successfully to {self.accelerator.device}.")
+            
+            # 필요한 부분 로드
+            vae = pipe.vae
+            text_encoder = pipe.text_encoder
+            text_encoder_2 = pipe.text_encoder_2
+            text_encoder_3 = pipe.text_encoder_3
+            transformer = pipe.transformer
+            scheduler = pipe.scheduler
+            tokenizer = pipe.tokenizer
+            tokenizer_2 = pipe.tokenizer_2
+            tokenizer_3 = pipe.tokenizer_3
+            print("SD3 components loaded successfully.")
+            
+        except Exception as e:
+            print(f"Error loading SD3 pipeline: {e}")
+            return
+        
+        #pipe 객체 지우기
+        del pipe
+        gc.collect(); torch.cuda.empty_cache()
+        
+        
+        try:
+            #LoRA 설정
+            lora_config = LoraConfig(
+                r = self.model_config.get("lora_rank", 16),
+                lora_alpha = self.model_config.get("lora_alpha", 32),
+                target_modules = ["to_k", "to_q", "to_v", "to_out.0"],
+                lora_dropout = 0.05,
+                bias = "none",
+            )
+            
+            transformer_lora = get_peft_model(transformer, lora_config)
+            transformer_lora.print_trainable_parameters()
+            
+            
+            #vae 및 텍스트 인코더 가중치 동결
+            
+            vae.requires_grad_(False)
+            text_encoder.requires_grad_(False)
+            if text_encoder_2: text_encoder_2.requires_grad_(False)
+            if text_encoder_3: text_encoder_3.requires_grad_(False)
+            
+        except Exception as e:
+            print(f"Error setting up LoRA: {e}")
+            return
+        
+        # dataloader 설정 일단 스킵킵
+        
+        
+        # optimizer scheduler 설정
+        optimizer = torch.optim.Adafactor(transformer_lora.parameters())
+        max_train_steps = num_epochs * len(texted_images_for_model3) // batch_size
+        lr_scheduler = get_scheduler(
+            "cosine",
+            optimizer=optimizer,
+            num_warmup_steps=4,
+            num_training_steps = max_train_steps * self.accelerator.gradient_accumulation_steps,
+        )
+        print(f"Optimizer and scheduler set up with {max_train_steps} total training steps.")
+        
+        # LoRA 학습 루프
+        output_dir = self.model_config.get("output_dir", "datas/images/output/model3_sd3_lora")
+        os.makedirs(output_dir, exist_ok=True)
+        print("Starting LoRA training...")
+        
+        total_batch_size = batch_size * self.accelerator.num_processes * self.accelerator.gradient_accumulation_steps
+        num_update_steps_per_epoch = math.ceil(len(texted_images_for_model3) / self.accelerator.gradient_accumulation_steps)
+        max_train_steps = num_epochs * num_update_steps_per_epoch
+        print(f"Total batch size: {total_batch_size}, Max training steps: {max_train_steps}")
+        
+        progress_bar = tqdm(range(max_train_steps), desc="Training LoRA", disable=not self.accelerator.is_main_process)
+        global_step = 0
+        
+        for epoch in range(num_epochs):
+            transformer_lora.train()
+            epoch_loss = 0.0
+            num_batches_in_epoch = 0
+            
+            for step, batch in enumerate(self.accelerator.prepare(texted_images_for_model3)):
+                with self.accelerator.accumulate(transformer_lora):
+                    with torch.no_grad():
+                        vae.to(self.accelerator.device)
+                        # 입력 이미지와 마스크를 VAE 입력 크기로 변환
+                        original_pixel_values = batch.orig.to(self.accelerator.device, dtype=weight_dtype)
+                        mask_pixel_values = batch.mask.to(self.accelerator.device, dtype=weight_dtype)
+                        
+                        target_latents = vae.encode(
+                            original_pixel_values.unsqueeze(0)
+                        ).latent_dist.sample() * vae.config.scaling_factor
+                        
+                        latent_mask = F.interpolate(
+                            mask_pixel_values.unsqueeze(0),
+                            size=target_latents.shape[-2:],
+                            mode="nearest"
+                        )
+                        
+                    # 노이즈 및 타임 스템 샘플링링
+                    noise = torch.rand_like(target_latents, device=self.accelerator.device, dtype=weight_dtype)
+                    bsz = target_latents.shape[0]
+                    noise_scheduler = DDIMScheduler(
+                        num_train_timesteps=self.model_config.get("max_train_timesteps", 1000),
+                        beta_start=0.00085,
+                        beta_end=0.012,
+                        beta_schedule="scaled_linear",
+                        clip_sample=False,
+                        set_alpha_to_one=False,
+                    )
+                    timesteps = torch.randint(
+                        0,
+                        noise_scheduler.num_train_timesteps,
+                        (bsz, ),
+                        device=target_latents.device,
+                    ).long()
+                    
+                    noisy_latents = noise_scheduler.add_noise(
+                        target_latents, noise, timesteps.cpu().to(torch.int32) # type: ignore
+                    )
+                    
+                    # 여기까지 Latent Space에서의 준비 작업
+                    # 텍스트 인코딩
+                    prompt = self.model_config.get("prompt", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style")
+                    negative_prompt = self.model_config.get("negative_prompt", "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry")
+                    
+                    with torch.no_grad():
+                        vae.to(self.accelerator.device)
+                        decoded = vae.decode(
+                            noisy_latents / vae.config.scaling_factor).sample
+                        vae.to("cpu")
+                        
+                    # 2. 텐서를 0~1 범위로 변환
+                    decoded_0_1 = (decoded / 2 + 0.5).clamp(0, 1)
+
+                    # 3. 배치에서 한 장만 시각화 (예: 첫 번째 이미지)
+                    img_tensor = decoded_0_1[0].cpu()
+
+                    # 4. (C, H, W) → (H, W, C)로 변환 후 PIL 이미지로
+
+                    img_pil = Image.fromarray((img_tensor.permute(1, 2, 0).numpy() * 255).astype(np.uint8))
+
+                    # 5. 이미지 보기 (예시)
+                    img_pil.show()
+                        
+                    
+                    
+                    
+                    
+                    
+                    
+                        
+                        
+                            
 
     def inference(self, texted_images_for_model3: list[TextedImage]):
             if not self.accelerator.is_main_process: return
@@ -85,8 +251,8 @@ class Model3(nn.Module):
             output_dir = self.model_config.get("output_dir", "datas/images/output/model3_sd3_inference")
             os.makedirs(output_dir, exist_ok=True)
             
-            prompt = self.model_config["prompts"]
-            negative_prompt = self.model_config["negative_prompt"] # <--- 여기에 정의
+            prompt = self.model_config.get("prompt", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style")
+            negative_prompt = self.model_config.get("negative_prompt", "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry")
 
             print("Starting SD3 LoRA Inference (Latent Inpainting Mode)...")
             for i, original_texted_image in enumerate(tqdm(texted_images_for_model3, desc="SD3 LoRA Inference")):
@@ -114,8 +280,6 @@ class Model3(nn.Module):
                         latent_mask_size = (latent_image.shape[2], latent_image.shape[3]) 
                         latent_mask = F.interpolate(mask_tensor.unsqueeze(0), size=latent_mask_size, mode="nearest").squeeze(0) # mask_tensor는 (1,H,W), interpolate는 (B,C,H,W) 기대
                         latent_mask = (latent_mask > 0.5).float().to(weight_dtype) # 0 또는 1 (float), weight_dtype으로 캐스팅
-
-                        pipe.vae.to("cpu")
                         
                         # Inpainting을 위한 초기 Latent 생성
                         noise = torch.randn_like(latent_image, device=current_device, dtype=weight_dtype)
@@ -127,9 +291,9 @@ class Model3(nn.Module):
                         
                         # 텍스트 인코딩
                         prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = pipe.encode_prompt(
-                            prompt=prompt,
-                            prompt_2=prompt if pipe.text_encoder_2 else None,
-                            prompt_3=prompt if pipe.text_encoder_3 else None,
+                            prompt=str(prompt),
+                            prompt_2= str(prompt),
+                            prompt_3= str(prompt),
                             device=current_device,
                             num_images_per_prompt=1, # 배치 크기 1
                             do_classifier_free_guidance=True,
@@ -138,10 +302,9 @@ class Model3(nn.Module):
                             negative_prompt_3=negative_prompt if pipe.text_encoder_3 else None,
                         )
 
-                        # 모든 임베딩 텐서를 weight_dtype으로 명시적 캐스팅 후 concat
+                        # 모든 임베딩 텐서를 weight_dtype으로 명시적 캐스팅 후 concat 
                         prompt_embeds_full = torch.cat([negative_prompt_embeds.to(weight_dtype), prompt_embeds.to(weight_dtype)], dim=0)
-                        pooled_embeddings_full = torch.cat([negative_pooled_prompt_embeds.to(weight_dtype), pooled_prompt_embeds.to(weight_dtype)], dim=0) 
-                        
+                        pooled_embeddings_full = torch.cat([negative_pooled_prompt_embeds.to(weight_dtype), pooled_prompt_embeds.to(weight_dtype)], dim=0)
                         pipe.text_encoder.to("cpu")
                         if pipe.text_encoder_2: pipe.text_encoder_2.to("cpu")
                         if pipe.text_encoder_3: pipe.text_encoder_3.to("cpu")
@@ -189,7 +352,6 @@ class Model3(nn.Module):
                         # VAE 디코더는 float32를 선호할 수 있지만, autocast가 처리.
                         # 출력 샘플은 weight_dtype일 것임.
                         final_image_tensor_norm = pipe.vae.decode(latents / pipe.vae.config.scaling_factor).sample
-                        pipe.vae.to("cpu") 
                         
                         # 이미지 후처리: -1~1 범위 텐서를 0~1 범위로 변환, PIL Image로 변환
                         final_image_tensor_0_1 = (final_image_tensor_norm / 2 + 0.5).clamp(0, 1)
