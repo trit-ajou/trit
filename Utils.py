@@ -33,6 +33,7 @@ class PipelineSetting:
     train_valid_split = 0.2
     lora_rank = 8
     lora_alpha = 16
+    lora_weight_path = "trit/models/lora"
 
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP

@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument("--ckpt_interval", type=int, default=5)
     parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
     parser.add_argument("--lora_rank", type=int, default=8)
+    parser.add_argument("--lora_weight_path", type = str, default="trit/models/lora")
     args = parser.parse_args()
     return args
 
@@ -84,6 +85,8 @@ if __name__ == "__main__":
     setting.clear_img_dir = args.images_dir
     setting.lora_rank = args.lora_rank
     setting.lora_alpha = setting.lora_rank * 2
+    setting.lora_weight_path = args.lora_weight_path
+    
     
     
 

@@ -63,11 +63,11 @@ class ImageLoader:
 
     def pil_to_texted_image(self, pil: Image.Image):
         w, h = pil.size
-        # orig = VTF.to_tensor(pil.convert("RGB")).to(self.setting.device) # GPU 대신 CPU에 생성
-        orig = VTF.to_tensor(pil.convert("RGB")).to("cpu")
-        timg = orig.clone() # CPU 복제
-        # mask = torch.zeros((1, h, w), device=self.setting.device) # GPU 대신 CPU에 생성
-        mask = torch.zeros((1, h, w), device="cpu")
+        orig = VTF.to_tensor(pil.convert("RGB")).to(
+            self.setting.device
+        )  # orig는 텐서로 변환만 하면 끝
+        timg = orig.clone()
+        mask = torch.zeros((1, h, w), device=self.setting.device) # 이미지 텐서 (C, H, W) 순서라서 수정함
         bboxes: List[BBox] = []
         # timg, mask, bboxes 생성 루프
         num_texts = random.randint(*self.policy.num_texts)
@@ -120,19 +120,14 @@ class ImageLoader:
             bbox = BBox(x, y, x + text_w, y + text_h)
             bboxes.append(bbox)
             # pil을 Tensor로 변환 후 rgb 채널, alpha 채널 분리
-            # _rgba = VTF.to_tensor(text_pil).to(self.setting.device) # GPU 대신 CPU에 생성
-            _rgba = VTF.to_tensor(text_pil).to("cpu")
+            _rgba = VTF.to_tensor(text_pil).to(self.setting.device)
             _rgb = _rgba[:3, :, :]
             _alpha = _rgba[3:4, :, :]
-            # timg에 합성 (alpha_blend 내부도 CPU 연산으로 가정)
+            # timg에 합성
             timg = TextedImage._alpha_blend(timg, bbox, _rgb, _alpha)
             # mask 업데이트
-            _mask = (_alpha > 0).float() # CPU에서 연산
-            # mask[bbox.slice] = torch.maximum(mask[bbox.slice], _mask) # CPU에서 연산
-            # 슬라이싱 후 할당 시에는 device가 일치해야 함
-            current_mask_slice = mask[bbox.slice]
-            updated_mask_slice = torch.maximum(current_mask_slice, _mask.to(current_mask_slice.device))
-            mask[bbox.slice] = updated_mask_slice
+            _mask = (_alpha > 0).float()
+            mask[bbox.slice] = torch.maximum(mask[bbox.slice], _mask)
 
         return TextedImage(orig, timg, mask, bboxes)
 

@@ -5,4 +5,3 @@ datas/images/
 test.py
 myenv/
 *.zip
-*.safetensors

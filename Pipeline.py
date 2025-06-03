@@ -83,7 +83,7 @@ class PipelineMgr:
                     "model_id" : "stabilityai/stable-diffusion-3.5-medium",
                     "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
                     "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                    "lora_path" : "trit/models/lora",
+                    "lora_path" : self.setting.lora_weight_path,
                     "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
@@ -91,8 +91,8 @@ class PipelineMgr:
                     "lr": 1e-6, # 기본값 : 1e-6
                     "weight_decay": 3e-4, # 기본값 : 3e-4
                     "input_size": self.setting.model3_input_size,
-                    "gradient_accumulation_steps": 64, # 조절 가능 기본값 : 4
-                    "max_train_timesteps": 1000, # 조절 가능 기본값 : 1000
+                    "gradient_accumulation_steps": 32, # 조절 가능 기본값 : 4
+                    "max_train_timesteps": 500, # 조절 가능 기본값 : 1000
                     "guidance_scale": 7.5, #  기본값 : 7.5
                     "lambda_ssim": 0.8, # ssim 손실 가중치
                     "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
@@ -113,7 +113,13 @@ class PipelineMgr:
                 print("[Pipeline] Running Model 3 Inference")
                 # TODO: model 3 inference, viz, apply
                 model3 = Model3(model_config, accelerator)
-                model3.inference(texted_images_for_model3)
+                results = model3.inference(texted_images_for_model3)
+                
+                texted_image.merge_cropped(results)
+                for i, result in enumerate(self.texted_images):
+                    result.visualize(dir="trit/datas/images/output", filename=f"final_{i}.png")
+                    
+                
                 
                 
         else:
