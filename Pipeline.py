@@ -3,7 +3,8 @@ import torch
 from tqdm import tqdm
 from copy import copy
 from torch.utils.data import DataLoader, random_split
-
+import torchvision.transforms.functional as VTF
+import os
 
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
@@ -11,7 +12,6 @@ from .datas.Dataset import MangaDataset1
 from .models.Utils import ModelMode
 from .models.Model3 import Model3
 from .Utils import PipelineSetting, ImagePolicy
-from accelerate import Accelerator
 
 class PipelineMgr:
     def __init__(self, setting: PipelineSetting, policy: ImagePolicy):
@@ -71,13 +71,7 @@ class PipelineMgr:
 
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
-            texted_images_for_model3 = [
-                _splitted
-                for texted_image in self.texted_images
-                for _splitted in texted_image.split_center_crop(
-                    self.setting.model3_input_size
-                )
-            ]
+            
             
             model_config = {
                     "model_id" : "stabilityai/stable-diffusion-3.5-medium",
@@ -87,41 +81,74 @@ class PipelineMgr:
                     "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
-                    "inference_steps" : 1, # 기본값 : 10
+                    "inference_steps" : 5, # 기본값 : 10
                     "lr": 1e-6, # 기본값 : 1e-6
                     "weight_decay": 3e-4, # 기본값 : 3e-4
                     "input_size": self.setting.model3_input_size,
-                    "gradient_accumulation_steps": 32, # 조절 가능 기본값 : 4
-                    "max_train_timesteps": 500, # 조절 가능 기본값 : 1000
+                    "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
+                    "max_train_timesteps": 2000, # 조절 가능 기본값 : 1000
                     "guidance_scale": 7.5, #  기본값 : 7.5
                     "lambda_ssim": 0.8, # ssim 손실 가중치
                     "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
                     "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
                     "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
                     }
-            accelerator = Accelerator(
-                    mixed_precision="fp16", # 혼합 정밀도 사용
-                    gradient_accumulation_steps=model_config["gradient_accumulation_steps"],
-                )
+            
             if self.setting.model3_mode == ModelMode.TRAIN:
+                # 학습시에만 사용용
+                texted_images_for_model3 = [
+                _splitted
+                for texted_image in self.texted_images
+                for _splitted in texted_image.split_center_crop(
+                    self.setting.model3_input_size
+                )]
                 print("[Pipeline] Training Model 3")
-                model3 = Model3(model_config, accelerator)
+                model3 = Model3(model_config)
                 print("[Pipeline] Calling model3.lora_train...")
                 model3.lora_train(texted_images_for_model3)
 
             elif self.setting.model3_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 3 Inference")
-                # TODO: model 3 inference, viz, apply
-                model3 = Model3(model_config, accelerator)
-                results = model3.inference(texted_images_for_model3)
+                model3 = Model3(model_config)
+
+                # 각 원본 이미지에 대해 center crop으로 패치 생성
+                texted_images_for_model3 = [
+                    _splitted
+                    for texted_image in self.texted_images
+                    for _splitted in texted_image.split_center_crop(
+                        self.setting.model3_input_size
+                    )
+                ]
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+                for i, texted_image in enumerate(texted_images_for_model3):
+                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
+
                 
-                texted_image.merge_cropped(results)
-                for i, result in enumerate(self.texted_images):
-                    result.visualize(dir="trit/datas/images/output", filename=f"final_{i}.png")
-                    
-                
-                
-                
+
+                # # 패치들을 인페인팅
+                # inpainted_patches = model3.inference(texted_images_for_model3)
+
+                # # 인페인팅된 패치들을 원본 이미지에 다시 합성
+                # # 패치들을 원본 이미지별로 그룹화하여 합성
+                # patch_idx = 0
+                # for texted_image in self.texted_images:
+                #     # 현재 이미지의 bbox 개수만큼 패치 가져오기
+                #     num_bboxes = len(texted_image.bboxes)
+                #     current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
+
+                #     # 패치들을 원본 이미지에 합성
+                #     texted_image.merge_cropped(current_patches)
+
+                #     patch_idx += num_bboxes
+
+                # # 결과 이미지 저장
+                # output_dir = "trit/datas/images/output"
+                # os.makedirs(output_dir, exist_ok=True)
+                # for i, texted_image in enumerate(self.texted_images):
+                #     texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
+
+                print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
         else:
             print("[Pipeline] Skipping Model 3")
 

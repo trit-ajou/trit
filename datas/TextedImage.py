@@ -75,8 +75,8 @@ class TextedImage:
         texted_images: list[TextedImage] = []
         for bbox in self.bboxes:
             # CPU에서 처리 후 필요할 때만 GPU로 이동
-            orig = self.timg.cpu().clone()
-            orig[bbox.slice] = self.orig.cpu()[bbox.slice]
+            # 완전히 원본 이미지만 사용 (텍스트가 붙지 않은 깨끗한 이미지)
+            orig = self.orig.cpu().clone()
             orig, _bbox = TextedImage._center_crop(orig, bbox, size)
             
             timg = self.timg.cpu().clone()
