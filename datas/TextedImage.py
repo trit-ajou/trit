@@ -74,19 +74,13 @@ class TextedImage:
         _bbox는 원래 이미지에 붙여넣을 때 잘라내야 할 정확한 크기를 저장함."""
         texted_images: list[TextedImage] = []
         for bbox in self.bboxes:
-            # CPU에서 처리 후 필요할 때만 GPU로 이동
-            # 완전히 원본 이미지만 사용 (텍스트가 붙지 않은 깨끗한 이미지)
-            orig = self.orig.cpu().clone()
+            orig = self.timg.clone()
+            orig[bbox.slice] = self.orig[bbox.slice]
             orig, _bbox = TextedImage._center_crop(orig, bbox, size)
-            
-            timg = self.timg.cpu().clone()
-            timg, _ = TextedImage._center_crop(timg, bbox, size)
-            
-            mask = torch.zeros_like(self.mask, device="cpu")
-            mask[bbox.slice] = self.mask.cpu()[bbox.slice]
+            timg, _ = TextedImage._center_crop(self.timg, bbox, size)
+            mask = torch.zeros_like(self.mask)
+            mask[bbox.slice] = self.mask[bbox.slice]
             mask, _ = TextedImage._center_crop(mask, bbox, size)
-            
-            # 필요할 때만 GPU로 이동
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 
@@ -148,21 +142,16 @@ class TextedImage:
 
     @staticmethod
     def _alpha_blend(
-        background_img: img_tensor, # CPU 텐서로 가정
+        background_img: img_tensor,
         bbox: BBox,  # bbox가 확실히 이미지 내부에 있음을 가정. 따로 clamping 안함.
-        img: img_tensor,  # CPU 텐서로 가정 (bbox 크기의 tensor)
-        alpha: img_tensor,  # CPU 텐서로 가정 (bbox 크기의 tensor)
+        img: img_tensor,  # bbox 크기의 tensor
+        alpha: img_tensor,  # bbox 크기의 tensor
     ):
-        # 모든 입력 텐서가 CPU에 있는지 확인 또는 명시적으로 CPU로 이동
-        background_img = background_img.cpu()
-        img = img.cpu()
-        alpha = alpha.cpu()
-
         # Calc alpha blended region
         cropped_background = background_img[bbox.slice]
         blended_img = img * alpha + (cropped_background * (1.0 - alpha))
         # Paste
-        output_image = background_img.clone()  # 원본수정방지 (CPU에서 복제)
+        output_image = background_img.clone()  # 원본수정방지
         output_image[bbox.slice] = blended_img
         return output_image
 

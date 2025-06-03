@@ -4,6 +4,7 @@ import os
 import numpy as np
 import gc
 import torch.nn.functional as F
+
 from ..datas.TextedImage import TextedImage
 from torch import FloatTensor, nn
 from torchvision import transforms # 이미지 전처리를 위해 추가 임포트
@@ -922,9 +923,11 @@ class Model3(nn.Module):
                         latent_mask_for_compositing = latent_mask_for_transformer.to(
                             dtype=latent_image.dtype, device=latent_image.device
                         )  # fp32로 변환
+                        
+                        
 
                         # 마스크된 영역에만 노이즈 적용
-                        latents = latent_image * (1 - latent_mask_for_compositing) + noise * latent_mask_for_compositing
+                        latents = latent_image * (1 - latent_mask_for_compositing) + noise * latent_mask_for_compositing # resizeing 
 
                         # F. 디퓨전 루프 (Denoising Loop)
                         pipe.scheduler.set_timesteps(num_inference_steps, device=self.device)
@@ -962,6 +965,8 @@ class Model3(nn.Module):
                         image_tensor_pred = pipe.vae.decode(
                             latents / pipe.vae.config.scaling_factor, return_dict=False
                         )[0]  # fp32, [-1,1] 범위
+                        
+                        print(image_tensor_pred.shape)
 
                         # H. 후처리 및 TextedImage 객체 업데이트
                         # [0,1] 범위로 정규화
@@ -973,24 +978,20 @@ class Model3(nn.Module):
                             device=current_patch_texted_image.orig.device
                         )
 
-                        # I. 패치 크기 조정 (중요: 원본 bbox 크기에 맞게 리사이즈)
+                        # I. 패치 크기 조정 (중요: 원본 bbox 크기에 맞게 리사이즈) --재검토토
                         # 현재 패치의 _bbox (center crop된 좌표)
-                        patch_bbox = current_patch_texted_image.bboxes[0]
+                        # patch_bbox = current_patch_texted_image.bboxes[0]
 
                         # 패치에서 실제 텍스트 영역만 추출 (center crop에서 잘린 부분 제거)
-                        cropped_final_tensor = final_tensor[patch_bbox.slice]
+                        # cropped_final_tensor = final_tensor[patch_bbox.slice]
 
                         # TextedImage 객체의 orig 속성 업데이트 (cropped된 버전으로)
-                        current_patch_texted_image.orig = cropped_final_tensor
-
-                        # timg와 mask도 동일하게 업데이트 (일관성 유지)
-                        current_patch_texted_image.timg = current_patch_texted_image.timg[patch_bbox.slice]
-                        current_patch_texted_image.mask = current_patch_texted_image.mask[patch_bbox.slice]
-
-                        # 시각화 저장 (선택사항)
-                        if i < 5:  # 처음 5개만 저장
-                            final_pil = transforms.ToPILImage()(final_tensor.cpu())
-                            final_pil.save(f"{output_dir}/inpainted_patch_{i}.png")
+                        current_patch_texted_image.orig = final_tensor
+                        
+                        # orig = final_tensor
+                        
+                        # a = TextedImage(orig, orig, torch.zeros(1, orig.shape[1], orig.shape[2],), current_patch_texted_image.bboxes)
+                        # a.visualize(dir="trit/datas/images/output", filename=f"inpainting.png")
 
                         print(f"Successfully inpainted patch {i+1}/{len(texted_images_to_inpaint)}")
 

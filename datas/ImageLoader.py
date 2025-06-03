@@ -67,7 +67,7 @@ class ImageLoader:
             self.setting.device
         )  # orig는 텐서로 변환만 하면 끝
         timg = orig.clone()
-        mask = torch.zeros((1, h, w), device=self.setting.device) # 이미지 텐서 (C, H, W) 순서라서 수정함
+        mask = torch.zeros((1, w, h), device=self.setting.device)
         bboxes: List[BBox] = []
         # timg, mask, bboxes 생성 루프
         num_texts = random.randint(*self.policy.num_texts)

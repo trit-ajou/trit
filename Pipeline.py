@@ -69,6 +69,10 @@ class PipelineMgr:
         if self.setting.model2_mode == ModelMode.INFERENCE:
             pass
 
+
+        # for i, texted_image in enumerate(self.texted_images):
+        #     texted_image.visualize(dir="trit/datas/images/output", filename=f"before_model3_images{i}.png")
+
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
             
@@ -81,7 +85,7 @@ class PipelineMgr:
                     "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
-                    "inference_steps" : 5, # 기본값 : 10
+                    "inference_steps" : 3, # 기본값 : 10
                     "lr": 1e-6, # 기본값 : 1e-6
                     "weight_decay": 3e-4, # 기본값 : 3e-4
                     "input_size": self.setting.model3_input_size,
@@ -119,34 +123,32 @@ class PipelineMgr:
                         self.setting.model3_input_size
                     )
                 ]
-                output_dir = "trit/datas/images/output"
-                os.makedirs(output_dir, exist_ok=True)
-                for i, texted_image in enumerate(texted_images_for_model3):
-                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
-
                 
-
-                # # 패치들을 인페인팅
-                # inpainted_patches = model3.inference(texted_images_for_model3)
+                for i, texted_image in enumerate(texted_images_for_model3):
+                    texted_image.visualize(dir="trit/datas/images/output", filename=f"before_inpainting{i}.png")
+                
+                
+                # 패치들을 인페인팅
+                inpainted_patches = model3.inference(texted_images_for_model3)
 
                 # # 인페인팅된 패치들을 원본 이미지에 다시 합성
                 # # 패치들을 원본 이미지별로 그룹화하여 합성
-                # patch_idx = 0
-                # for texted_image in self.texted_images:
-                #     # 현재 이미지의 bbox 개수만큼 패치 가져오기
-                #     num_bboxes = len(texted_image.bboxes)
-                #     current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
+                patch_idx = 0
+                for texted_image in self.texted_images:
+                    # 현재 이미지의 bbox 개수만큼 패치 가져오기
+                    num_bboxes = len(texted_image.bboxes)
+                    current_patches = texted_images_for_model3[patch_idx:patch_idx + num_bboxes]
 
-                #     # 패치들을 원본 이미지에 합성
-                #     texted_image.merge_cropped(current_patches)
+                    # 패치들을 원본 이미지에 합성
+                    texted_image.merge_cropped(current_patches)
 
-                #     patch_idx += num_bboxes
+                    patch_idx += num_bboxes
 
-                # # 결과 이미지 저장
-                # output_dir = "trit/datas/images/output"
-                # os.makedirs(output_dir, exist_ok=True)
-                # for i, texted_image in enumerate(self.texted_images):
-                #     texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
+                # 결과 이미지 저장
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+                for i, texted_image in enumerate(self.texted_images):
+                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
 
                 print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
         else:
