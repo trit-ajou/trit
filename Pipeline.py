@@ -89,24 +89,12 @@ class PipelineMgr:
             
             
             model_config = {
-                    "model_id" : "stabilityai/stable-diffusion-3.5-medium",
-                    "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
-                    "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                    "lora_path" : self.setting.lora_weight_path,
-                    "lora_weight_name" : "best_model.safetensors", # 변경가능
-                    "epochs": self.setting.epochs,
-                    "batch_size": self.setting.batch_size,
-                    "inference_steps" : 3, # 기본값 : 10
-                    "lr": 1e-6, # 기본값 : 1e-6
-                    "weight_decay": 3e-4, # 기본값 : 3e-4
-                    "input_size": self.setting.model3_input_size,
-                    "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
-                    "max_train_timesteps": 2000, # 조절 가능 기본값 : 1000
-                    "guidance_scale": 7.5, #  기본값 : 7.5
-                    "lambda_ssim": 0.8, # ssim 손실 가중치
-                    "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
-                    "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
-                    "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
+                    "prompts": "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                    "negative_prompt": "deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, mutated hands and fingers, disconnected limbs, mutation, mutated, ugly, disgusting, blurry, amputation, NSFW, photo, realistic, color, colorful, purple, violet, sepia, any color tint",
+                    "inference_steps": 28,  # SD3 Inpainting에 적합한 스텝 수
+                    "guidance_scale": 7.5,
+                    "seed": 42,  # 재현성을 위한 시드
+                    "output_dir": "trit/datas/images/output"
                     }
             
             if self.setting.model3_mode == ModelMode.TRAIN:
