@@ -233,7 +233,12 @@ class ImageLoader:
     def _render_text_layer(
         self, text_content: str, font: ImageFont.FreeTypeFont, policy_is_sfx: bool
     ) -> Optional[Image.Image]:
-        text_color = self._get_random_rgba()
+        # 텍스트 색 설정
+        if self.policy.text_color_is_random:
+            text_color = self._get_random_rgba()
+        else:
+            text_color = random.choice(self.policy.fixed_text_color_options)
+        # 외곽선 두께 색 설정
         stroke_width = 0
         stroke_fill = None
         if random.random() < self.policy.stroke_prob or policy_is_sfx:
@@ -247,8 +252,11 @@ class ImageLoader:
                     max(stroke_width, int(font.size * 0.15)),
                     self.policy.stroke_width_limit_px[1] * 2,
                 )
-            stroke_fill = self._get_random_rgba()
-
+            if self.policy.stroke_color_is_random:
+                stroke_fill = self._get_random_rgba()
+            else:
+                stroke_fill = random.choice(self.policy.fixed_stroke_color_options)
+        # 그림자 설정
         shadow_params = None
         if random.random() < self.policy.shadow_prob or policy_is_sfx:
             s_off_x_r = random.uniform(
@@ -275,8 +283,7 @@ class ImageLoader:
                 s_blur,
                 s_color,
             )
-
-        final_text = text_content
+        # 텍스트 정렬 설정
         text_align = random.choice(self.policy.text_align_options)
         line_spacing = int(
             font.size
@@ -287,14 +294,14 @@ class ImageLoader:
         try:
             text_bbox = _draw_dummy.textbbox(
                 (0, 0),
-                final_text,
+                text_content,
                 font=font,
                 stroke_width=stroke_width,
                 spacing=line_spacing,
                 align=text_align,
             )
         except TypeError:
-            text_bbox = _draw_dummy.textbbox((0, 0), final_text, font=font)
+            text_bbox = _draw_dummy.textbbox((0, 0), text_content, font=font)
             if stroke_width > 0:
                 text_bbox = (
                     text_bbox[0] - stroke_width,
@@ -338,7 +345,7 @@ class ImageLoader:
             shadow_draw = ImageDraw.Draw(shadow_layer)
             shadow_draw.text(
                 (draw_origin_x + s_offset_x, draw_origin_y + s_offset_y),
-                final_text,
+                text_content,
                 font=font,
                 fill=s_color_rgba,
                 stroke_width=stroke_width,
@@ -354,7 +361,7 @@ class ImageLoader:
 
         draw.text(
             (draw_origin_x, draw_origin_y),
-            final_text,
+            text_content,
             font=font,
             fill=text_color,
             stroke_width=stroke_width,
