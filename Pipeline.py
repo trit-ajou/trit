@@ -10,6 +10,7 @@ from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
 from .datas.Dataset import MangaDataset1
 from .models.Utils import ModelMode
+from .models.Model1 import Model1
 from .models.Model3 import Model3
 from .Utils import PipelineSetting, ImagePolicy
 
@@ -24,12 +25,22 @@ class PipelineMgr:
         self.texted_images: list[TextedImage] = self.imageloader.load_images(
             self.setting.num_images, self.setting.clear_img_dir
         )
-
+        for i, texted_image in enumerate(
+            tqdm(self.texted_images, desc="Loading Images")
+        ):
+            texted_image.visualize(
+                self.setting.output_img_dir, f"image_{i:04d}_raw.png"
+            )
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
         for texted_image in self.texted_images:
             texted_image.merge_bboxes_with_margin(self.setting.margin)
 
+        # Might need to change device to GPU
+        self.setting.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        print(f"[Pipeline] Using Device: {self.setting.device}")
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
             texted_images_for_model1 = [

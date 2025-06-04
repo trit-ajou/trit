@@ -7,9 +7,10 @@ from .models.Utils import ModelMode
 
 @dataclass
 class PipelineSetting:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # 모델 돌릴 땐 GPU로 바꾸쇼
     use_amp = True
-    num_workers = 0
+    num_workers = 1
 
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
@@ -18,7 +19,7 @@ class PipelineSetting:
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
 
-    model1_input_size = (1024, 1024)
+    model1_input_size = (256, 256)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
     model2_input_size = (256, 256)
     model3_input_size = (512, 512)
 
