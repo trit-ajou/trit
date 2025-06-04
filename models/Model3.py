@@ -2,6 +2,7 @@ import torch
 import os
 import numpy as np
 import gc
+import time
 from diffusers import StableDiffusionInpaintPipeline
 from PIL import Image
 from torchvision import transforms
@@ -60,6 +61,11 @@ class Model3:
             guidance_scale = self.model_config.get("guidance_scale", 7.5)
             num_inference_steps = self.model_config.get("inference_steps", 28)
 
+            # 시각화 설정
+            show_visualization = self.model_config.get("show_visualization", True)
+            auto_continue = self.model_config.get("auto_continue", False)  # True면 자동 진행, False면 사용자 입력 대기
+            display_time = self.model_config.get("display_time", 3)  # 자동 진행 시 표시 시간(초)
+
             # 4. 출력 디렉토리 설정
             output_dir = self.model_config.get("output_dir", "trit/datas/images/output")
             os.makedirs(output_dir, exist_ok=True)
@@ -97,33 +103,43 @@ class Model3:
                     seed = self.model_config.get("seed", 42)
                     generator = torch.Generator(device=self.device).manual_seed(seed + i)
 
-                    # 중간 시각화: 입력 이미지와 마스크 저장
-                    orig_pil.save(f"{output_dir}/input_image_patch_{i}.png")
-                    mask_binary_pil.save(f"{output_dir}/input_mask_patch_{i}.png")
+                    # 실시간 시각화: 입력 이미지와 마스크 화면에 표시
+                    if show_visualization:
+                        print(f"\n=== Patch {i+1}/{len(texted_images_to_inpaint)} 시각화 ===")
 
-                    # 마스크 오버레이 시각화 (빨간색으로 마스크 영역 표시)
-                    overlay_img = orig_pil.copy()
-                    overlay_img.paste(Image.new('RGB', mask_binary_pil.size, (255, 0, 0)), mask=mask_binary_pil)
-                    blended = Image.blend(orig_pil, overlay_img, alpha=0.3)
-                    blended.save(f"{output_dir}/input_with_mask_overlay_patch_{i}.png")
+                        # 마스크 오버레이 생성 (빨간색으로 마스크 영역 표시)
+                        overlay_img = orig_pil.copy()
+                        overlay_img.paste(Image.new('RGB', mask_binary_pil.size, (255, 0, 0)), mask=mask_binary_pil)
+                        blended = Image.blend(orig_pil, overlay_img, alpha=0.3)
 
-                    # matplotlib을 사용한 상세 시각화
-                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-                    axes[0].imshow(orig_pil)
-                    axes[0].set_title(f"Input Image (Patch {i})")
-                    axes[0].axis('off')
+                        # matplotlib으로 실시간 표시
+                        plt.figure(figsize=(15, 5))
 
-                    axes[1].imshow(mask_binary_pil, cmap='gray')
-                    axes[1].set_title(f"Mask (Patch {i})")
-                    axes[1].axis('off')
+                        plt.subplot(1, 3, 1)
+                        plt.imshow(orig_pil)
+                        plt.title(f"Input Image (Patch {i+1})\n텍스트가 포함된 원본 이미지")
+                        plt.axis('off')
 
-                    axes[2].imshow(blended)
-                    axes[2].set_title(f"Input + Mask Overlay (Patch {i})")
-                    axes[2].axis('off')
+                        plt.subplot(1, 3, 2)
+                        plt.imshow(mask_binary_pil, cmap='gray')
+                        plt.title(f"Mask (Patch {i+1})\n인페인팅할 텍스트 영역")
+                        plt.axis('off')
 
-                    plt.tight_layout()
-                    plt.savefig(f"{output_dir}/detailed_input_visualization_patch_{i}.png", dpi=150, bbox_inches='tight')
-                    plt.close()
+                        plt.subplot(1, 3, 3)
+                        plt.imshow(blended)
+                        plt.title(f"Input + Mask Overlay (Patch {i+1})\n빨간색 = 인페인팅 영역")
+                        plt.axis('off')
+
+                        plt.tight_layout()
+                        plt.show()
+
+                        # 진행 방식 선택
+                        if auto_continue:
+                            print(f"자동 진행 중... {display_time}초 후 인페인팅 시작")
+                            time.sleep(display_time)
+                        else:
+                            input("Press Enter to continue with inpainting...")
+                        plt.close('all')
 
                     # 인페인팅 실행
                     result = pipe(
@@ -138,7 +154,48 @@ class Model3:
                         guidance_scale=guidance_scale,
                     ).images[0]
 
-                    # 결과 시각화 (디버깅용)
+                    # 인페인팅 결과 실시간 시각화
+                    if show_visualization:
+                        print(f"\n=== Patch {i+1} 인페인팅 결과 ===")
+
+                        plt.figure(figsize=(20, 5))
+
+                        plt.subplot(1, 4, 1)
+                        plt.imshow(orig_pil)
+                        plt.title(f"Before: Input Image\n(텍스트 포함)")
+                        plt.axis('off')
+
+                        plt.subplot(1, 4, 2)
+                        plt.imshow(mask_binary_pil, cmap='gray')
+                        plt.title(f"Mask\n(인페인팅 영역)")
+                        plt.axis('off')
+
+                        plt.subplot(1, 4, 3)
+                        plt.imshow(result)
+                        plt.title(f"After: Inpainted Result\n(텍스트 제거됨)")
+                        plt.axis('off')
+
+                        # Before/After 비교
+                        plt.subplot(1, 4, 4)
+                        comparison = Image.new('RGB', (orig_pil.width * 2, orig_pil.height))
+                        comparison.paste(orig_pil, (0, 0))
+                        comparison.paste(result, (orig_pil.width, 0))
+                        plt.imshow(comparison)
+                        plt.title(f"Before vs After\n(좌: 원본, 우: 결과)")
+                        plt.axis('off')
+
+                        plt.tight_layout()
+                        plt.show()
+
+                        # 결과 확인 후 계속 진행
+                        if auto_continue:
+                            print(f"자동 진행 중... {display_time}초 후 다음 패치로")
+                            time.sleep(display_time)
+                        else:
+                            input("Press Enter to continue to next patch...")
+                        plt.close('all')
+
+                    # 결과 시각화 (파일 저장용)
                     result.save(f"{output_dir}/inpainted_patch_{i}.png")
 
                     # 결과를 텐서로 변환하여 TextedImage에 저장
