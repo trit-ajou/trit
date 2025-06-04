@@ -1,3 +1,4 @@
+import os
 import torch
 import torchvision.transforms.functional as VTF
 import matplotlib.pyplot as plt
@@ -87,9 +88,23 @@ class TextedImage:
     def merge_cropped(self, cropped_texted_images: list["TextedImage"]):
         for bbox, cropped_texted_image in zip(self.bboxes, cropped_texted_images):
             _bbox = cropped_texted_image.bboxes[0]
+
+            # 슬라이싱 전 안전성 검사
+            if (_bbox.width <= 0 or _bbox.height <= 0 or
+                bbox.width <= 0 or bbox.height <= 0):
+                print(f"Warning: Invalid bbox dimensions. _bbox: {_bbox.width}x{_bbox.height}, bbox: {bbox.width}x{bbox.height}. Skipping merge.")
+                continue
+
             cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
             cropped_texted_image.timg = cropped_texted_image.timg[_bbox.slice]
             cropped_texted_image.mask = cropped_texted_image.mask[_bbox.slice]
+
+            # 슬라이싱 후 크기 검사
+            _, H, W = cropped_texted_image.orig.shape
+            if H == 0 or W == 0:
+                print(f"Warning: Cropped image has zero dimensions H={H}, W={W}. Skipping merge.")
+                continue
+
             cropped_texted_image._resize((bbox.height, bbox.width))
             self.orig[bbox.slice] = cropped_texted_image.orig
             self.timg[bbox.slice] = cropped_texted_image.timg
@@ -99,6 +114,15 @@ class TextedImage:
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
         _, H, W = self.orig.shape
         TARGET_H, TARGET_W = size
+
+        # 안전장치: 크기가 0인 경우 처리
+        if H == 0 or W == 0:
+            print(f"Warning: Invalid image dimensions H={H}, W={W}. Skipping resize.")
+            return
+        if TARGET_H == 0 or TARGET_W == 0:
+            print(f"Warning: Invalid target dimensions TARGET_H={TARGET_H}, TARGET_W={TARGET_W}. Skipping resize.")
+            return
+
         # Calculate aspect ratios
         original_aspect = W / H
         target_aspect = TARGET_W / TARGET_H
@@ -214,6 +238,9 @@ class TextedImage:
         return orig, timg, mask
 
     def visualize(self, dir=".", filename="test.png"):
+        # 디렉토리가 존재하지 않으면 생성
+        os.makedirs(dir, exist_ok=True)
+
         orig, timg, mask = self._to_pil()
         draw = ImageDraw.Draw(timg)
         for bbox in self.bboxes:

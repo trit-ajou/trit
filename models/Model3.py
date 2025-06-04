@@ -74,6 +74,11 @@ class Model3:
                         print(f"Warning: Skipping too small patch of size {current_patch.orig.shape[1]}x{current_patch.orig.shape[2]}")
                         continue
 
+                    # 패치 크기가 0인 경우 건너뜀
+                    if current_patch.orig.shape[1] == 0 or current_patch.orig.shape[2] == 0:
+                        print(f"Warning: Skipping zero-sized patch of size {current_patch.orig.shape[1]}x{current_patch.orig.shape[2]}")
+                        continue
+
                     # 원본 이미지와 마스크를 PIL로 변환
                     to_pil = transforms.ToPILImage()
                     orig_pil = to_pil(current_patch.orig.cpu())
@@ -113,6 +118,11 @@ class Model3:
                         device=current_patch.orig.device,
                         dtype=current_patch.orig.dtype
                     )
+
+                    # 결과 텐서 크기 검증
+                    if result_tensor.shape[1] == 0 or result_tensor.shape[2] == 0:
+                        print(f"Warning: Inpainting result has zero dimensions {result_tensor.shape}. Skipping patch {i+1}")
+                        continue
 
                     # 원본 텐서와 크기 맞추기
                     if result_tensor.shape != current_patch.orig.shape:
