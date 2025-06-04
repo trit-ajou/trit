@@ -10,7 +10,7 @@ class PipelineSetting:
     device = torch.device("cpu")
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # 모델 돌릴 땐 GPU로 바꾸쇼
     use_amp = True
-    num_workers = 0
+    num_workers = 1
 
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
