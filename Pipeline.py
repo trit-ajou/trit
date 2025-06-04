@@ -137,7 +137,7 @@ class PipelineMgr:
                 for texted_image in self.texted_images:
                     # 현재 이미지의 bbox 개수만큼 패치 가져오기
                     num_bboxes = len(texted_image.bboxes)
-                    current_patches = texted_images_for_model3[patch_idx:patch_idx + num_bboxes]
+                    current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
 
                     # 패치들을 원본 이미지에 합성
                     texted_image.merge_cropped(current_patches)
