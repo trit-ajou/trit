@@ -8,7 +8,7 @@ from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
 from .datas.Dataset import MangaDataset1
 from .models.Utils import ModelMode
-from .models.Model1 import Model1, Model1Loss
+from .models.Model1 import Model1
 from .Utils import PipelineSetting, ImagePolicy
 
 
