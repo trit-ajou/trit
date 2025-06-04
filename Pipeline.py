@@ -29,6 +29,11 @@ class PipelineMgr:
         for texted_image in self.texted_images:
             texted_image.merge_bboxes_with_margin(self.setting.margin)
 
+        # Might need to change device to GPU
+        self.setting.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        print(f"[Pipeline] Using Device: {self.setting.device}")
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
             texted_images_for_model1 = [

@@ -6,6 +6,7 @@ import torchvision.transforms.functional as VTF
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from typing import List, Tuple, Optional, Dict
 from tqdm import tqdm
+import multiprocessing
 
 from .Utils import BBox, Lang, UNICODE_RANGES
 from .TextedImage import TextedImage
@@ -55,10 +56,18 @@ class ImageLoader:
             )
             for noise_img in noise_imgs:
                 clear_pils.append(Image.fromarray(noise_img, "RGB"))
-        # TextedImage로 변환 및 리턴
+        # apply_async 사용해서 병렬로 TextedImage 생성
+        print(
+            f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers"
+        )
         texted_images = []
-        for clear_pil in tqdm(clear_pils, leave=False):
-            texted_images.append(self.pil_to_texted_image(clear_pil))
+        with multiprocessing.Pool(self.setting.num_workers) as pool:
+            results = [
+                pool.apply_async(self.pil_to_texted_image, (clear_pil,))
+                for clear_pil in clear_pils
+            ]
+            for result in tqdm(results, total=len(results), leave=False):
+                texted_images.append(result.get())
         return texted_images
 
     def pil_to_texted_image(self, pil: Image.Image):
