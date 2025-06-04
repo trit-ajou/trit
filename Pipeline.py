@@ -94,11 +94,7 @@ class PipelineMgr:
                     "inference_steps": 28,  # SD3 Inpainting에 적합한 스텝 수
                     "guidance_scale": 7.5,
                     "seed": 42,  # 재현성을 위한 시드
-                    "output_dir": "trit/datas/images/output",
-                    # 실시간 시각화 설정
-                    "show_visualization": True,  # 시각화 표시 여부
-                    "auto_continue": False,      # True: 자동 진행, False: 사용자 입력 대기
-                    "display_time": 3           # 자동 진행 시 표시 시간(초)
+                    "output_dir": "trit/datas/images/output"
                     }
             
             if self.setting.model3_mode == ModelMode.TRAIN:
