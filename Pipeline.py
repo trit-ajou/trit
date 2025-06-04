@@ -30,6 +30,13 @@ class PipelineMgr:
         for texted_image in self.texted_images:
             texted_image.merge_bboxes_with_margin(self.setting.margin)
 
+        # Might need to change device to GPU
+        self.setting.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+            
+        
+
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
             texted_images_for_model1 = [
@@ -82,20 +89,16 @@ class PipelineMgr:
                     "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
                     "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
                     "lora_path" : self.setting.lora_weight_path,
-                    "lora_weight_name" : "best_model.safetensors", # 변경가능
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
-                    "inference_steps" : 3, # 기본값 : 10
-                    "lr": 1e-6, # 기본값 : 1e-6
-                    "weight_decay": 3e-4, # 기본값 : 3e-4
+                    "inference_steps" : 10, # 기본값 : 10
                     "input_size": self.setting.model3_input_size,
                     "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
-                    "max_train_timesteps": 2000, # 조절 가능 기본값 : 1000
                     "guidance_scale": 7.5, #  기본값 : 7.5
-                    "lambda_ssim": 0.8, # ssim 손실 가중치
                     "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
                     "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
-                    "output_dir": "trit/datas/images/output" # 학습 중 시각화 결과 저장 경로
+                    "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
+                    "mask_weight": self.setting.mask_weight
                     }
             
             if self.setting.model3_mode == ModelMode.TRAIN:
@@ -106,6 +109,7 @@ class PipelineMgr:
                 for _splitted in texted_image.split_center_crop(
                     self.setting.model3_input_size
                 )]
+                
                 print("[Pipeline] Training Model 3")
                 model3 = Model3(model_config)
                 print("[Pipeline] Calling model3.lora_train...")

@@ -63,9 +63,9 @@ class TextedImage:
         _bbox는 원래 이미지에 붙여넣을 때 잘라내야 할 정확한 크기를 저장함."""
         texted_images: list[TextedImage] = []
         for bbox in self.bboxes:
-            orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin)
-            timg, _ = TextedImage._margin_crop(self.timg, bbox, margin)
-            mask, _ = TextedImage._margin_crop(self.mask, bbox, margin)
+            orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin, fill=1.0)
+            timg, _ = TextedImage._margin_crop(self.timg, bbox, margin, fill=1.0)
+            mask, _ = TextedImage._margin_crop(self.mask, bbox, margin, fill=0.0)
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 
@@ -117,9 +117,15 @@ class TextedImage:
         pad_right = TARGET_W - new_w - pad_left
         pad_top = (TARGET_H - new_h) // 2
         pad_bottom = TARGET_H - new_h - pad_top
-        self.orig = VTF.pad(self.orig, (pad_left, pad_top, pad_right, pad_bottom))
-        self.timg = VTF.pad(self.timg, (pad_left, pad_top, pad_right, pad_bottom))
-        self.mask = VTF.pad(self.mask, (pad_left, pad_top, pad_right, pad_bottom))
+        self.orig = VTF.pad(
+            self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1
+        )
+        self.timg = VTF.pad(
+            self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1
+        )
+        self.mask = VTF.pad(
+            self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0
+        )
         # resize bboxes
         new_bboxes: list[BBox] = []
         scale_w = new_w / W
@@ -156,11 +162,7 @@ class TextedImage:
         return output_image
 
     @staticmethod
-    def _margin_crop(
-        img: img_tensor,
-        bbox: BBox,
-        margin: int,
-    ):
+    def _margin_crop(img: img_tensor, bbox: BBox, margin: int, fill: float = 0.0):
         _, H, W = img.shape
         expanded_bbox = bbox._unsafe_expand(margin)
         crop_bbox = bbox._safe_expand(margin, (H, W))
@@ -171,7 +173,7 @@ class TextedImage:
         pad_bottom = max(0, expanded_bbox.y2 - H)
         # Apply padding if needed
         img = img[crop_bbox.slice]
-        img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom))
+        img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom), fill=fill)
         return img, bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
 
     @staticmethod

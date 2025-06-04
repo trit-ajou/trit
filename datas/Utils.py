@@ -30,12 +30,12 @@ UNICODE_RANGES = {
 
 class BBox(tuple):
     def __new__(cls, x1: int, y1: int, x2: int, y2: int):
-        # 안전한 BBox 생성을 위한 검증
-        if not all(isinstance(val, (int, float)) for val in [x1, y1, x2, y2]):
-            raise ValueError(f"BBox 좌표는 숫자여야 합니다: x1={x1}, y1={y1}, x2={x2}, y2={y2}")
-
         x1, y1, x2, y2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
         return super().__new__(cls, (x1, y1, x2, y2))
+
+    # 피클 가능하도록 추가
+    def __reduce__(self):
+        return (self.__class__, (self.x1, self.y1, self.x2, self.y2))
 
     @property
     def x1(self):

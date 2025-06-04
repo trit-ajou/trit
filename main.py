@@ -43,6 +43,7 @@ def parse_args():
     parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
     parser.add_argument("--lora_rank", type=int, default=8)
     parser.add_argument("--lora_weight_path", type = str, default="trit/models/lora")
+    parser.add_argument("--mask_weight", type=float, default=2.0)
     args = parser.parse_args()
     return args
 
