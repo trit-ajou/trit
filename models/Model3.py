@@ -978,6 +978,14 @@ class Model3(nn.Module):
                             device=current_patch_texted_image.orig.device
                         )
 
+                        # 마스크 영역만 적용하기 : 원본 이미지 복사 후 마스크 영역만 인페인팅 결과로 대체
+                        mask_for_compositing = current_patch_texted_image.mask.to(
+                            dtype=final_tensor.dtype,
+                            device=final_tensor.device
+                        ) 
+                        original_tensor = current_patch_texted_image.orig.clone()
+                        composited_result = original_tensor * (1 - mask_for_compositing) + final_tensor * mask_for_compositing
+
                         # I. 패치 크기 조정 (중요: 원본 bbox 크기에 맞게 리사이즈) --재검토토
                         # 현재 패치의 _bbox (center crop된 좌표)
                         # patch_bbox = current_patch_texted_image.bboxes[0]
@@ -986,7 +994,7 @@ class Model3(nn.Module):
                         # cropped_final_tensor = final_tensor[patch_bbox.slice]
 
                         # TextedImage 객체의 orig 속성 업데이트 (cropped된 버전으로)
-                        current_patch_texted_image.orig = final_tensor
+                        current_patch_texted_image.orig = composited_result
                         
                         # orig = final_tensor
                         
