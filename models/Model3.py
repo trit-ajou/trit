@@ -6,6 +6,7 @@ from diffusers import StableDiffusionInpaintPipeline
 from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from ..datas.TextedImage import TextedImage
 
@@ -95,6 +96,34 @@ class Model3:
                     # 시드 설정 (재현성)
                     seed = self.model_config.get("seed", 42)
                     generator = torch.Generator(device=self.device).manual_seed(seed + i)
+
+                    # 중간 시각화: 입력 이미지와 마스크 저장
+                    orig_pil.save(f"{output_dir}/input_image_patch_{i}.png")
+                    mask_binary_pil.save(f"{output_dir}/input_mask_patch_{i}.png")
+
+                    # 마스크 오버레이 시각화 (빨간색으로 마스크 영역 표시)
+                    overlay_img = orig_pil.copy()
+                    overlay_img.paste(Image.new('RGB', mask_binary_pil.size, (255, 0, 0)), mask=mask_binary_pil)
+                    blended = Image.blend(orig_pil, overlay_img, alpha=0.3)
+                    blended.save(f"{output_dir}/input_with_mask_overlay_patch_{i}.png")
+
+                    # matplotlib을 사용한 상세 시각화
+                    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+                    axes[0].imshow(orig_pil)
+                    axes[0].set_title(f"Input Image (Patch {i})")
+                    axes[0].axis('off')
+
+                    axes[1].imshow(mask_binary_pil, cmap='gray')
+                    axes[1].set_title(f"Mask (Patch {i})")
+                    axes[1].axis('off')
+
+                    axes[2].imshow(blended)
+                    axes[2].set_title(f"Input + Mask Overlay (Patch {i})")
+                    axes[2].axis('off')
+
+                    plt.tight_layout()
+                    plt.savefig(f"{output_dir}/detailed_input_visualization_patch_{i}.png", dpi=150, bbox_inches='tight')
+                    plt.close()
 
                     # 인페인팅 실행
                     result = pipe(

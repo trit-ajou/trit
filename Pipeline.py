@@ -150,6 +150,7 @@ class PipelineMgr:
                     texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
 
                 print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
+                print("[Pipeline] Note: Failed regions retain original text (no cheating)")
         else:
             print("[Pipeline] Skipping Model 3")
 

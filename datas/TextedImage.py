@@ -92,7 +92,7 @@ class TextedImage:
             # 슬라이싱 전 안전성 검사
             if (_bbox.width <= 0 or _bbox.height <= 0 or
                 bbox.width <= 0 or bbox.height <= 0):
-                print(f"Warning: Invalid bbox dimensions. _bbox: {_bbox.width}x{_bbox.height}, bbox: {bbox.width}x{bbox.height}. Skipping merge.")
+                print(f"Warning: Invalid bbox dimensions. _bbox: {_bbox.width}x{_bbox.height}, bbox: {bbox.width}x{bbox.height}. Text will remain in this region.")
                 continue
 
             cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
@@ -102,7 +102,7 @@ class TextedImage:
             # 슬라이싱 후 크기 검사
             _, H, W = cropped_texted_image.orig.shape
             if H == 0 or W == 0:
-                print(f"Warning: Cropped image has zero dimensions H={H}, W={W}. Skipping merge.")
+                print(f"Warning: Cropped image has zero dimensions H={H}, W={W}. Text will remain in this region.")
                 continue
 
             cropped_texted_image._resize((bbox.height, bbox.width))
