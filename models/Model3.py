@@ -63,7 +63,7 @@ class Model3:
 
             # 시각화 설정
             show_visualization = self.model_config.get("show_visualization", True)
-            auto_continue = self.model_config.get("auto_continue", False)  # True면 자동 진행, False면 사용자 입력 대기
+            auto_continue = self.model_config.get("auto_continue", True)  # True면 자동 진행, False면 사용자 입력 대기
             display_time = self.model_config.get("display_time", 3)  # 자동 진행 시 표시 시간(초)
 
             # 4. 출력 디렉토리 설정
