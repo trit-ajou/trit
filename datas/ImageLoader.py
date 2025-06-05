@@ -32,7 +32,9 @@ class ImageLoader:
         # font cache 정의: key=(path, size)
         self.font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 
-    def load_images(self, num_images: int, dir: str) -> List[TextedImage]:
+    def load_images(
+        self, num_images: int, dir: str, max_text_size: tuple[int, int]
+    ) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
         # 노이즈 이미지 사용 안하는 경우
         if not self.setting.use_noise:
@@ -63,14 +65,14 @@ class ImageLoader:
         texted_images = []
         with multiprocessing.Pool(self.setting.num_workers) as pool:
             results = [
-                pool.apply_async(self.pil_to_texted_image, (clear_pil,))
+                pool.apply_async(self.pil_to_texted_image, (clear_pil, max_text_size))
                 for clear_pil in clear_pils
             ]
             for result in tqdm(results, total=len(results), leave=False):
                 texted_images.append(result.get())
         return texted_images
 
-    def pil_to_texted_image(self, pil: Image.Image):
+    def pil_to_texted_image(self, pil: Image.Image, max_text_size: tuple[int, int]):
         w, h = pil.size
         orig = VTF.to_tensor(pil.convert("RGB")).to(
             self.setting.device
@@ -119,9 +121,16 @@ class ImageLoader:
             text_w, text_h = text_pil.size
             max_x = w - text_w
             max_y = h - text_h
-            # 텍스트가 이미지보다 크면 건너뜀
-            if max_x < 0 or max_y < 0:
-                continue
+            # 텍스트가 이미지보다 크면
+            if w < text_w or h < text_h:
+                raise ValueError(
+                    "[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간."
+                )
+            # 텍스트가 max_text_size보다 크면
+            if text_w > max_text_size[0] or text_h > max_text_size[1]:
+                raise ValueError(
+                    "[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간."
+                )
             # bbox 좌표 결정
             x = random.randint(0, max_x)
             y = random.randint(0, max_y)

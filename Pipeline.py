@@ -23,14 +23,10 @@ class PipelineMgr:
         ################################################### Step 1: Load Images ##############################################
         print("[Pipeline] Loading Images")
         self.texted_images: list[TextedImage] = self.imageloader.load_images(
-            self.setting.num_images, self.setting.clear_img_dir
+            self.setting.num_images,
+            self.setting.clear_img_dir,
+            max_text_size=self.setting.model3_input_size,
         )
-        for i, texted_image in enumerate(
-            tqdm(self.texted_images, desc="Loading Images")
-        ):
-            texted_image.visualize(
-                self.setting.output_img_dir, f"image_{i:04d}_raw.png"
-            )
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
         for texted_image in self.texted_images:

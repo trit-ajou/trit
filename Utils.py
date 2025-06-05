@@ -19,7 +19,7 @@ class PipelineSetting:
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
 
-    model1_input_size = (256, 256)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
+    model1_input_size = (2048, 2560)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
     model2_input_size = (256, 256)
     model3_input_size = (256, 256)
 
