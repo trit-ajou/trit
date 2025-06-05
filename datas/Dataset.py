@@ -2,7 +2,8 @@ import torch
 from torch.utils.data import Dataset
 from typing import List, Tuple, Dict, Any  # Import Any
 from .TextedImage import TextedImage  # TextedImage is in the same directory
-
+from . import imgproc
+from torch.autograd import Variable
 
 class MangaDataset1(Dataset):
     # -------- 수정 시작 (__init__ 시그니처 및 __getitem__ 반환 값 - 이전 답변과 동일) --------

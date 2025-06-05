@@ -24,6 +24,7 @@ class PipelineSetting:
     texted_img_dir = f"{_script_dir}/datas/images/texted"
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
+    debug_dir = f"{_script_dir}/debug"
 
     model1_input_size = (256, 256)
     model2_input_size = (256, 256)
@@ -33,7 +34,7 @@ class PipelineSetting:
     use_noise = False
     margin = 4
     max_objects = 1024
-    epochs = 10
+    epochs = 0 # this is no matter to default value.. fuck.. go to main.py
     batch_size = 4
     lr = 0.001
     weight_decay = 3e-4

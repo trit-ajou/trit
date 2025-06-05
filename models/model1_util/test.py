@@ -39,10 +39,10 @@ def test_net(net, image, cuda, poly, text_threshold=0.7, link_threshold=0.4, low
     # forward pass
     with torch.no_grad():
         y, feature = net(x)
-    print("y-----------------------")
-    print(y)
-    print("feature-----------------------")
-    print(feature)
+    # print("y-----------------------")
+    # print(y)
+    # print("feature-----------------------")
+    # print(feature)
     # make score and link map
     score_text = y[0,:,:,0].cpu().data.numpy()
     score_link = y[0,:,:,1].cpu().data.numpy()

@@ -62,7 +62,7 @@ class ImageLoader:
         return texted_images_list
 
     def pil_to_texted_image(
-            self, pil_img: Image.Image, generate_craft_gt: bool = False
+            self, pil_img: Image.Image, generate_craft_gt: bool = False, debug_block:bool = False
     ) -> TextedImage:
         img_w, img_h = pil_img.size
         # orig_tensor = VTF.to_tensor(pil_img.convert("RGB")).to(self.setting.device)
@@ -103,7 +103,7 @@ class ImageLoader:
             # 2. 수정된 함수 호출 (이 함수는 아래에 새로 정의/수정됨)
             rendered_text_block_pil, char_infos_relative_to_block_pil = \
                 self._render_text_block_and_get_char_infos(  # 함수 이름 변경 및 역할 확장
-                    wrapped_text_str_multiline, font_obj, is_sfx, generate_craft_gt
+                    wrapped_text_str_multiline, font_obj, is_sfx, generate_craft_gt,f"block_{i_block}_{random.randint(1000,9999) if debug_block else None}"
                 )
 
             if rendered_text_block_pil is None: continue
@@ -169,7 +169,8 @@ class ImageLoader:
 
     def _render_text_block_and_get_char_infos(  # 함수 시그니처 변경
             self, text_content_str: str, font_obj: ImageFont.FreeTypeFont,
-            is_sfx_style_policy: bool, extract_char_info_flag: bool  # 플래그 추가
+            is_sfx_style_policy: bool, extract_char_info_flag: bool,
+            debug_visualization_prefix: Optional[str] = None# 플래그 추가
     ) -> Tuple[Optional[Image.Image], Optional[List[CharInfo]]]:  # 반환 타입 변경
 
         # --- 1. 텍스트 덩어리 렌더링 준비 (기존 _render_text_layer 로직과 매우 유사) ---
@@ -178,8 +179,6 @@ class ImageLoader:
         # 주의: 이 과정에서 "변형 전" 각 문자의 위치를 계산하기 위한 정보들을
         # 잘 기록하거나 계산할 수 있는 형태로 유지해야 합니다.
         # (예: 각 라인의 y 시작점, 각 라인 내 문자들의 x 오프셋, 사용된 정렬 방식 등)
-        # (이전 답변에서 제공한 _render_text_block_and_get_char_infos 앞부분 코드 참고)
-        # (코드가 길어 여기서는 핵심 아이디어만 기술합니다.)
         text_color_val = self._get_random_rgba();
         stroke_w_val = 0;
         stroke_fill_val = None
@@ -245,178 +244,304 @@ class ImageLoader:
                            fill=text_color_val, stroke_width=stroke_w_val, stroke_fill=stroke_fill_val,
                            spacing=line_spacing_pixels, align=text_align_opt)
 
+        # -------------수정 시작---------------
         # --- 2. 변형 전 각 문자의 폴리곤 계산 (char_polygons_untransformed_in_padded_layer) ---
-        #    이 로직은 이 함수 내에서 직접 수행.
         untransformed_char_polygons_with_info: List[Tuple[np.ndarray, str, int]] = []
         if extract_char_info_flag:
             current_relative_word_id_in_block = 0
-            lines = text_content_str.split('\n')
-            y_text_start_in_padded = draw_orig_x_in_padded  # 오타 수정: draw_orig_y_in_padded
+            lines = final_text_str.split('\n')
+
+            # Pillow의 textbbox는 전체 텍스트 블록의 bbox를 (spacing, align 고려하여) 반환.
+            # 이 bbox의 top-left를 기준으로 각 라인, 각 문자의 상대 위치를 계산해야 함.
+            # text_bbox_on_pil[0]과 text_bbox_on_pil[1]은 텍스트 블록의 좌상단 좌표.
+            # draw_orig_x_in_padded와 draw_orig_y_in_padded는 이 좌상단이 패딩된 이미지에 그려지는 위치.
+
+            # 각 라인의 높이를 정확히 알기 위해 font.getsize 또는 font.getmask 사용 필요.
+            # Pillow의 text() 함수는 내부적으로 복잡한 로직으로 위치를 결정함.
+            # 이를 정확히 모방하기보다, 그려진 결과를 바탕으로 추정하거나,
+            # 문자별로 직접 렌더링하여 bbox를 얻는 것이 더 정확할 수 있음.
+            # 여기서는 textbbox 결과를 바탕으로 최대한 근사.
+
+            # 라인별 시작 y 좌표 계산을 위한 변수.
+            # text_bbox_on_pil[1]은 이미 stroke와 spacing의 영향을 일부 받은 텍스트 블록의 시작 y.
+            # draw_orig_y_in_padded가 패딩된 레이어에서 텍스트 블록이 시작되는 y.
+            current_line_y_start_in_padded = draw_orig_y_in_padded
 
             for line_text_str in lines:
-                if not line_text_str.strip():
+                if not line_text_str.strip():  # 빈 줄 처리
+                    # 빈 줄의 높이를 대략적으로 계산 (예: 'A' 문자의 높이) + 줄 간격
                     try:
-                        y_text_start_in_padded += font_obj.getmask("A").size[1] + line_spacing_pixels
-                    except AttributeError:
-                        y_text_start_in_padded += font_obj.size + line_spacing_pixels
+                        # Pillow 9.2.0+ .getmask().size, older .getsize()
+                        empty_line_h = font_obj.getmask("A").size[1] if hasattr(font_obj.getmask("A"), 'size') else \
+                        font_obj.getsize("A")[1]
+                    except AttributeError:  # getsize도 없는 아주 오래된 버전 또는 이상한 폰트 대비
+                        empty_line_h = font_obj.size  # 최후의 보루
+                    current_line_y_start_in_padded += empty_line_h + line_spacing_pixels
                     current_relative_word_id_in_block += 1
                     continue
 
-                line_bbox_from_font = _draw_dummy.textbbox((0, 0), line_text_str, font=font_obj,
-                                                           stroke_width=stroke_w_val, spacing=0)
-                line_render_width_from_font = line_bbox_from_font[2] - line_bbox_from_font[0]
+                # 현재 라인의 렌더링된 너비 계산 (정렬에 사용)
+                # 주의: _draw_dummy.textbbox는 (0,0) 기준 bbox. stroke, spacing=0으로 하여 순수 텍스트 너비 계산
+                try:
+                    line_bbox_for_align = _draw_dummy.textbbox((0, 0), line_text_str, font=font_obj,
+                                                               stroke_width=stroke_w_val, spacing=0)  # spacing=0 중요!
+                    line_actual_render_width = line_bbox_for_align[2] - line_bbox_for_align[0]
+                    # 라인 높이도 유사하게 (ascent + descent)
+                    # font.getmetrics() 사용 가능 (Pillow 9.metrics[0] + metrics[1])
+                    # 간단히는 getbbox로 y 범위.
+                    line_actual_render_height = line_bbox_for_align[3] - line_bbox_for_align[1]
 
-                x_text_start_in_padded = draw_orig_x_in_padded
+                except TypeError:  # Older Pillow
+                    line_actual_render_width = font_obj.getsize(line_text_str)[0] if hasattr(font_obj, 'getsize') else 0
+                    line_actual_render_height = font_obj.getsize("A")[1] if hasattr(font_obj,
+                                                                                    'getsize') else font_obj.size
+
+                # 라인 정렬에 따른 x 시작 위치 조정
+                # draw_orig_x_in_padded는 전체 텍스트 블록의 시작 x.
+                # text_render_w는 전체 텍스트 블록의 너비.
+                current_line_x_start_in_padded = draw_orig_x_in_padded
                 if text_align_opt == 'center':
-                    x_text_start_in_padded += (text_render_w - line_render_width_from_font) / 2
+                    current_line_x_start_in_padded += (text_render_w - line_actual_render_width) / 2.0
                 elif text_align_opt == 'right':
-                    x_text_start_in_padded += (text_render_w - line_render_width_from_font)
+                    current_line_x_start_in_padded += (text_render_w - line_actual_render_width)
 
-                current_char_x_advance_in_line = 0
+                current_char_x_offset_in_line = 0  # 현재 라인 내에서 문자의 x축 누적 오프셋
                 for char_val in line_text_str:
-                    char_bbox_font_local = font_obj.getbbox(char_val, stroke_width=stroke_w_val)
-                    char_x1 = x_text_start_in_padded + current_char_x_advance_in_line + char_bbox_font_local[0]
-                    char_y1 = y_text_start_in_padded + char_bbox_font_local[1]
-                    char_x2 = x_text_start_in_padded + current_char_x_advance_in_line + char_bbox_font_local[2]
-                    char_y2 = y_text_start_in_padded + char_bbox_font_local[3]
+                    # 각 문자의 바운딩 박스 (폰트 원점 기준, stroke 고려)
+                    # font.getbbox()는 (left, top, right, bottom)을 반환. top/bottom은 baseline 기준.
+                    try:
+                        # stroke_width를 getbbox에 전달하면 stroke 포함된 bbox 반환
+                        char_font_bbox = font_obj.getbbox(char_val, stroke_width=stroke_w_val)
+                        # 문자의 가로 전진 폭 (advance width). getlength 사용 (Pillow 9.2.0+)
+                        char_advance = font_obj.getlength(char_val)  # stroke_width 고려 안함. 순수 문자 폭.
+                    except AttributeError:  # Older Pillow
+                        # getmask().getbbox()는 stroke_width 고려 안함.
+                        mask = font_obj.getmask(char_val)
+                        char_font_bbox = mask.getbbox() if mask else (0, 0, 0, 0)  # (x0,y0,x1,y1) 래스터 이미지의 bbox
+                        char_advance = font_obj.getsize(char_val)[0] if hasattr(font_obj, 'getsize') else (
+                                    char_font_bbox[2] - char_font_bbox[0])
+
+                    # 패딩된 레이어 내에서의 절대 좌표 계산
+                    # char_font_bbox[0]은 문자 원점(보통 글자 왼쪽)에서 bbox 왼쪽까지의 x 오프셋.
+                    # char_font_bbox[1]은 baseline에서 bbox 상단까지의 y 오프셋 (음수일 수 있음).
+                    # current_line_y_start_in_padded는 현재 라인의 상단 y좌표.
+                    # Pillow의 text() 함수는 baseline에 맞춰 그리므로, y좌표 계산 시 주의.
+                    # 여기서는 라인 상단 + char_font_bbox[1] (폰트 bbox의 top)으로 근사.
+                    # 더 정확하려면 폰트의 ascent 값을 알아야 함.
+                    # font_ascent, font_descent = font_obj.getmetrics() # Pillow 9+
+                    # y_baseline_in_padded = current_line_y_start_in_padded + font_ascent (근사)
+
+                    char_x1 = current_line_x_start_in_padded + current_char_x_offset_in_line + char_font_bbox[0]
+                    char_y1 = current_line_y_start_in_padded + char_font_bbox[1]  # 라인 상단 기준 bbox top
+                    char_x2 = current_line_x_start_in_padded + current_char_x_offset_in_line + char_font_bbox[2]
+                    char_y2 = current_line_y_start_in_padded + char_font_bbox[3]  # 라인 상단 기준 bbox bottom
+
                     untransformed_poly = np.array(
                         [[char_x1, char_y1], [char_x2, char_y1], [char_x2, char_y2], [char_x1, char_y2]],
                         dtype=np.float32)
                     untransformed_char_polygons_with_info.append(
                         (untransformed_poly, char_val, current_relative_word_id_in_block))
-                    char_advance = char_bbox_font_local[2] - char_bbox_font_local[0]
-                    if char_val == ' ':
+
+                    # 다음 문자 x 시작 위치는 현재 문자의 advance 폭만큼 이동
+                    current_char_x_offset_in_line += char_advance
+                    if char_val == ' ' and char_advance == 0:  # 공백인데 advance가 0인 경우 (일부 폰트)
                         try:
-                            char_advance = font_obj.getlength(" ")
-                        except AttributeError:
-                            char_advance = font_obj.getmask(" ").size[0] if font_obj.getmask(
-                                " ") else font_obj.size * 0.25
-                    current_char_x_advance_in_line += char_advance
-                line_h = line_bbox_from_font[3] - line_bbox_from_font[1];
-                y_text_start_in_padded += line_h + line_spacing_pixels
+                            char_advance = font_obj.getmask(" ").size[0] * 0.8  # 근사치
+                        except:
+                            char_advance = font_obj.size * 0.25
+                        current_char_x_offset_in_line += char_advance
+
+                # 다음 라인의 y 시작 위치 업데이트
+                current_line_y_start_in_padded += line_actual_render_height + line_spacing_pixels
                 current_relative_word_id_in_block += 1
+        if debug_visualization_prefix and extract_char_info_flag and untransformed_char_polygons_with_info:
+            img_vis_untransformed = text_layer_img_untransformed.copy()
+            draw_vis_untransformed = ImageDraw.Draw(img_vis_untransformed)
+            for poly, char_c, word_id in untransformed_char_polygons_with_info:
+                # 폴리곤 그리기 (초록색)
+                draw_vis_untransformed.polygon([tuple(p) for p in poly.tolist()], outline=(0, 255, 0, 128), width=1)
+                # 중심점 계산 및 그리기 (빨간색 점)
+                center_x = np.mean(poly[:, 0])
+                center_y = np.mean(poly[:, 1])
+                r = 2
+                draw_vis_untransformed.ellipse((center_x - r, center_y - r, center_x + r, center_y + r),
+                                               fill=(255, 0, 0, 200))
 
-        # --- 3. 전체 텍스트 덩어리에 기하학적 변형 적용 (기존 _render_text_layer 로직) ---
-        #    이 과정에서 적용된 최종 변환 행렬(들)을 계산하거나 기록해두는 것이 중요.
-        layer_to_transform_img = text_layer_img_untransformed
-        # `applied_transforms` 딕셔너리를 만들어 각 단계의 변환 행렬(또는 파라미터) 저장
-        # 예: M_rotation, M_shear_affine, M_perspective_coeffs
-        # (이전 답변의 변형 적용 코드 부분과 동일하게 진행, 단 변환 행렬/파라미터 기록)
-        applied_rotation_val = 0.0  # 회전 각도
-        # Pillow의 rotate(expand=True)에 해당하는 정확한 3x3 변환 행렬을 구해야 함.
-        # 이는 회전 + 이동(새로운 중심에 맞게)을 포함.
-        # M_rotation_for_coords = ... (3x3 행렬)
-        # --- (회전, 기울이기, 원근 변형 로직은 기존과 동일하게 수행) ---
-        # (이 과정에서 Pillow API가 적용된 최종 이미지: cropped_final_text_img)
+            # 시각화 이미지 저장 (경로는 적절히 수정 필요)
+            vis_save_dir = self.setting.debug_dir
+            if not os.path.exists(vis_save_dir): os.makedirs(vis_save_dir, exist_ok=True)
+            img_vis_untransformed.save(
+                os.path.join(vis_save_dir, f"{debug_visualization_prefix}_untransformed_chars.png"))
+        # -------------수정 시작---------------
+        # 이 부분은 이미지 변환과 좌표 변환을 동기화하는 핵심 로직입니다.
+        # Pillow 이미지 변환 함수들은 변환 행렬을 직접 반환하지 않으므로,
+        # 각 변환에 해당하는 3x3 동차 변환 행렬을 직접 구성하고,
+        # 이를 문자 좌표에 순차적으로 적용해야 합니다.
+
+        img_to_transform_pil = text_layer_img_untransformed
+        # T_coords_total: 변형 전 좌표계(untransformed_char_polygons)에서
+        # 최종 변형 후 좌표계(final_transformed_img의 crop 전 이미지)로의 누적 변환 행렬
+        T_coords_total = np.eye(3, dtype=np.float64)  # 3x3 단위 행렬 (동차 좌표계용)
+
+        # 3.1 회전 (Rotation)
+        # Pillow의 rotate(expand=True)는 이미지 중심 기준 회전 후, 내용이 잘리지 않도록 이미지 크기를 확장.
+        # 이와 동일한 변환을 좌표에 적용해야 함.
         current_rot_range = self.policy.rotation_angle_range
-        if is_sfx_style_policy: current_rot_range = (min(-90, self.policy.rotation_angle_range[0] * 2),
-                                                     max(90, self.policy.rotation_angle_range[1] * 2))
-        angle_to_apply = random.uniform(*current_rot_range);
-        applied_rotation_val = angle_to_apply  # 저장
-        img_after_rotation = layer_to_transform_img.rotate(angle_to_apply, expand=True,
-                                                           resample=Image.Resampling.BICUBIC)
-        layer_to_transform_img = img_after_rotation
+        if is_sfx_style_policy:
+            current_rot_range = (min(-90, self.policy.rotation_angle_range[0] * 2),
+                                 max(90, self.policy.rotation_angle_range[1] * 2))
+        angle_deg_to_apply = random.uniform(*current_rot_range)
 
-        # 기울이기 변환 행렬 (M_shear_for_coords, 3x3) 계산
-        applied_shear_coeffs_val = None
+        W0, H0 = img_to_transform_pil.size  # 회전 전 이미지 크기
+        center_x0, center_y0 = W0 / 2.0, H0 / 2.0  # 회전 중심 (이미지 중심)
+
+        # Pillow 이미지 회전
+        img_after_rotation_pil = img_to_transform_pil.rotate(
+            angle_deg_to_apply, expand=True, resample=Image.Resampling.BICUBIC
+        )
+        W1, H1 = img_after_rotation_pil.size  # 회전 후 확장된 이미지 크기
+        center_x1, center_y1 = W1 / 2.0, H1 / 2.0  # 새 이미지의 중심
+
+        # 좌표 변환 행렬 계산:
+        # 1. 원본 이미지 중심을 원점(0,0)으로 이동 (T_to_origin)
+        # 2. 원점 기준 회전 (R_matrix)
+        # 3. 확장된 새 이미지의 중심으로 이동 (T_to_new_center)
+        # M_rotation_for_coords = T_to_new_center @ R_matrix @ T_to_origin
+        T_to_origin = np.array([[1, 0, -center_x0],
+                                [0, 1, -center_y0],
+                                [0, 0, 1]], dtype=np.float64)
+        angle_rad = np.radians(-angle_deg_to_apply)
+        cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+        R_matrix = np.array([[cos_a, -sin_a, 0],
+                             [sin_a, cos_a, 0],
+                             [0, 0, 1]], dtype=np.float64)
+        T_to_new_center = np.array([[1, 0, center_x1],
+                                    [0, 1, center_y1],
+                                    [0, 0, 1]], dtype=np.float64)
+        M_rotation_for_coords = T_to_new_center @ R_matrix @ T_to_origin
+
+        T_coords_total = M_rotation_for_coords @ T_coords_total
+        img_to_transform_pil = img_after_rotation_pil  # 다음 변환을 위해 이미지 업데이트
+        current_W, current_H = W1, H1  # 현재 이미지 크기 업데이트
+
+        # 3.2 기울이기 (Shear / Affine Transform)
+        M_shear_for_coords = np.eye(3, dtype=np.float64)  # 단위 행렬로 초기화
         if random.random() < self.policy.shear_apply_prob or is_sfx_style_policy:
-            shear_x = random.uniform(*self.policy.shear_x_factor_range);
-            shear_y = random.uniform(*self.policy.shear_y_factor_range)
-            if is_sfx_style_policy: shear_x *= 1.5; shear_y *= 1.5
-            s_coeffs = None
-            if abs(shear_x) > 0.01:
-                s_coeffs = (1, shear_x, 0, 0, 1, 0)
-            elif abs(shear_y) > 0.01:
-                s_coeffs = (1, 0, 0, shear_y, 1, 0)
-            if s_coeffs:
-                applied_shear_coeffs_val = s_coeffs  # Pillow용 계수
-                layer_to_transform_img = layer_to_transform_img.transform(layer_to_transform_img.size,
-                                                                          Image.Transform.AFFINE, s_coeffs,
-                                                                          resample=Image.Resampling.BICUBIC)
-                # M_shear_for_coords = np.array([[s_coeffs[0], s_coeffs[1], s_coeffs[2]],
-                #                                [s_coeffs[3], s_coeffs[4], s_coeffs[5]],
-                #                                [0, 0, 1]], dtype=np.float32) # (잘못된 접근, Pillow affine은 6개 파라미터)
-                # Pillow affine (a,b,c,d,e,f) -> 3x3 행렬 [[a,b,c],[d,e,f],[0,0,1]] (x,y)출력 기준
-                # x_out = ax + by + c, y_out = dx + ey + f
-                # M_shear_for_coords = np.array([[s_coeffs[0],s_coeffs[1],s_coeffs[2]],[s_coeffs[3],s_coeffs[4],s_coeffs[5]],[0,0,1]], dtype=np.float32).T # Pillow문서 확인 필요
+            shear_x_factor = random.uniform(*self.policy.shear_x_factor_range)
+            shear_y_factor = random.uniform(*self.policy.shear_y_factor_range)
+            if is_sfx_style_policy:
+                shear_x_factor *= 1.5
+                shear_y_factor *= 1.5
 
-        # 원근 변환 행렬 (M_perspective_for_coords, 3x3) 계산
-        applied_perspective_coeffs_val = None
+            # Pillow의 affine transform 계수: (a, b, c, d, e, f)
+            # x_new = a*x + b*y + c
+            # y_new = d*x + e*y + f
+            # M_shear_for_coords는 이에 해당하는 3x3 행렬:
+            # [[a, b, c],
+            #  [d, e, f],
+            #  [0, 0, 1]]
+            pil_affine_coeffs = None
+            if abs(shear_x_factor) > 0.01:  # x축 방향 기울이기
+                pil_affine_coeffs = (1, shear_x_factor, 0,  # a, b, c
+                                     0, 1, 0)  # d, e, f
+                M_shear_for_coords = np.array([[1, -shear_x_factor, 0],
+                                               [0, 1, 0],
+                                               [0, 0, 1]], dtype=np.float64)
+            elif abs(shear_y_factor) > 0.01:  # y축 방향 기울이기
+                pil_affine_coeffs = (1, 0, 0,  # a, b, c
+                                     shear_y_factor, 1, 0)  # d, e, f
+                M_shear_for_coords = np.array([[1, 0, 0],
+                                               [-shear_y_factor, 1, 0],
+                                               [0, 0, 1]], dtype=np.float64)
+
+            if pil_affine_coeffs:
+                img_to_transform_pil = img_to_transform_pil.transform(
+                    (current_W, current_H),  # 현재 이미지 크기 사용
+                    Image.Transform.AFFINE,
+                    pil_affine_coeffs,
+                    resample=Image.Resampling.BICUBIC
+                )
+                T_coords_total = M_shear_for_coords @ T_coords_total
+                # 중요: Affine 변환은 이미지 크기를 변경하지 않음. current_W, current_H 유지.
+
+        # 3.3 원근 변형 (Perspective Transform)
+        M_perspective_for_coords = np.eye(3, dtype=np.float64)  # 단위 행렬로 초기화
         if random.random() < self.policy.perspective_transform_enabled_prob or is_sfx_style_policy:
-            curr_w, curr_h = layer_to_transform_img.size
-            p_coeffs = self._get_perspective_coeffs_numpy(curr_w, curr_h,
-                                                          self.policy.perspective_transform_strength_ratio_range)
-            if p_coeffs:
-                applied_perspective_coeffs_val = p_coeffs  # Pillow용 계수
-                try:
-                    layer_to_transform_img = layer_to_transform_img.transform(layer_to_transform_img.size,
-                                                                              Image.Transform.PERSPECTIVE, p_coeffs,
-                                                                              resample=Image.Resampling.BICUBIC)
-                except:
-                    pass
-                # M_perspective_for_coords = np.array([[p_coeffs[0],p_coeffs[1],p_coeffs[2]],
-                #                                      [p_coeffs[3],p_coeffs[4],p_coeffs[5]],
-                #                                      [p_coeffs[6],p_coeffs[7],1.0]], dtype=np.float32).T # Pillow 문서 확인 필요
+            # _get_perspective_coeffs_numpy는 H_forward (src -> dst)의 8개 계수를 반환한다고 가정.
+            # H = [[a,b,c],[d,e,f],[g,h,1]]
+            # Pillow의 transform(PERSPECTIVE, data)는 H_inverse의 8개 계수를 data로 받음.
+            H_forward_coeffs_tuple = self._get_perspective_coeffs_numpy(
+                current_W, current_H, self.policy.perspective_transform_strength_ratio_range
+            )
+            if H_forward_coeffs_tuple:
+                # 정방향 원근 변환 행렬 H_forward 구성
+                M_perspective_for_coords = np.array([
+                    [H_forward_coeffs_tuple[0], H_forward_coeffs_tuple[1], H_forward_coeffs_tuple[2]],
+                    [H_forward_coeffs_tuple[3], H_forward_coeffs_tuple[4], H_forward_coeffs_tuple[5]],
+                    [H_forward_coeffs_tuple[6], H_forward_coeffs_tuple[7], 1.0]  # H[2,2]는 보통 1
+                ], dtype=np.float64)
 
-        final_bbox_in_transformed_img = layer_to_transform_img.getbbox()
-        if final_bbox_in_transformed_img is None: return None, None
-        cropped_final_text_img = layer_to_transform_img.crop(final_bbox_in_transformed_img)
+                try:
+                    # Pillow에 전달할 역방향 변환 행렬 H_inverse 계산
+                    H_inverse_matrix = np.linalg.inv(M_perspective_for_coords)
+                    pil_perspective_coeffs = tuple(H_inverse_matrix.flatten()[:8])
+
+                    img_to_transform_pil = img_to_transform_pil.transform(
+                        (current_W, current_H),  # 현재 이미지 크기 사용
+                        Image.Transform.PERSPECTIVE,
+                        pil_perspective_coeffs,
+                        resample=Image.Resampling.BICUBIC
+                    )
+                    T_coords_total = M_perspective_for_coords @ T_coords_total
+                    # 중요: Perspective 변환은 이미지 크기를 변경하지 않음. current_W, current_H 유지.
+                except (np.linalg.LinAlgError, ValueError) as e:
+                    # print(f"Perspective transform failed: {e}. Skipping.")
+                    M_perspective_for_coords = np.eye(3, dtype=np.float64)  # 실패 시 변환 없음으로 처리
+                    pass  # H_forward_coeffs_tuple이 유효했으나 역행렬 계산 실패 등
+
+        final_transformed_img_pil = img_to_transform_pil  # 모든 변환이 적용된 최종 이미지
+        final_bbox_in_transformed_img = final_transformed_img_pil.getbbox()
+
+        if final_bbox_in_transformed_img is None:
+            return None, None  # 변환 후 이미지가 비었으면 실패 처리
+
+        cropped_final_text_img = final_transformed_img_pil.crop(final_bbox_in_transformed_img)
+        if cropped_final_text_img.width == 0 or cropped_final_text_img.height == 0:
+            return None, None  # 크롭 후 이미지 크기가 0이면 실패
 
         # --- 4. 변형된 문자 폴리곤 계산 및 CharInfo 생성 ---
         char_infos_list_relative_to_cropped: Optional[List[CharInfo]] = None
         if extract_char_info_flag and untransformed_char_polygons_with_info:
             char_infos_list_relative_to_cropped = []
-            # 이 루프에서 각 untransformed_poly에 위에서 계산/저장한
-            # M_rotation_for_coords, M_shear_for_coords, M_perspective_for_coords를
-            # 순서대로 곱하여 변형된 폴리곤을 얻고, 최종 크롭 기준으로 상대 좌표화.
-            # (NumPy를 사용한 3x3 행렬과 (N,3) 동차좌표 폴리곤 점들의 행렬곱)
-
-            # ----- 중요: 아래는 변환 행렬 계산 및 적용 로직의 핵심 아이디어 -----
-            # 1. 전체 변환 행렬 M_total = M_persp @ M_shear @ M_rot (행렬곱 순서 중요)
-            #    각 M은 3x3 동차 변환 행렬.
-            #    - M_rot: Pillow의 rotate(expand=True)에 해당하는 변환. (가장 복잡)
-            #      단순 회전 + 이동(새로운 중심에 맞게)을 포함해야 함.
-            #      (예: 초기 레이어 중심을 원점으로 이동 -> 회전 -> 새 레이어 크기에 맞게 이동)
-            #    - M_shear: applied_shear_coeffs_val (Pillow affine 계수)로부터 3x3 아핀 행렬 구성.
-            #      [[a,b,c],[d,e,f],[0,0,1]] 형태. (Pillow 문서에서 계수 순서 확인 필요)
-            #    - M_persp: applied_perspective_coeffs_val (Pillow perspective 계수)로부터 3x3 원근 행렬 구성.
-            #      [[a,b,c],[d,e,f],[g,h,1]] 형태. (Pillow 문서에서 계수 순서 확인 필요, 보통 inv(H)의 전치)
-
-            # 이 변환 행렬들을 정확히 구성하는 것이 핵심. OpenCV 함수 활용 가능.
-            # 예: M_rot = cv2.getRotationMatrix2D(...) 후 3x3 확장 및 추가 이동.
-            # M_shear = np.float32([[a,b,c],[d,e,f]]) 후 cv2.warpAffine 대신 좌표에 직접 적용.
-            # M_persp = cv2.getPerspectiveTransform(...)으로 src->dst 맵핑 후 cv2.perspectiveTransform(coords, H_persp).
+            # 크롭 오프셋: final_bbox_in_transformed_img의 (x1, y1)
+            crop_offset_x = final_bbox_in_transformed_img[0]
+            crop_offset_y = final_bbox_in_transformed_img[1]
 
             for poly_untransformed, char_s, rel_word_id in untransformed_char_polygons_with_info:
-                # poly_untransformed (4,2) -> homogeneous (4,3)
-                poly_h = np.hstack([poly_untransformed, np.ones((4, 1))])
+                # poly_untransformed (4,2) -> homogeneous (4,3) (각 점에 1 추가)
+                poly_h = np.hstack([poly_untransformed, np.ones((poly_untransformed.shape[0], 1))])
 
-                # transformed_poly_h = (M_total @ poly_h.T).T # (4,3)
-                # 또는 각 변환을 순차적으로 적용:
-                # poly_after_rot_h = (M_rot @ poly_h.T).T
-                # poly_after_shear_h = (M_shear @ poly_after_rot_h.T).T
-                # poly_after_persp_h = (M_persp @ poly_after_shear_h.T).T
-                # transformed_poly_h = poly_after_persp_h
+                # 누적된 변환 행렬 T_coords_total 적용: P'_h = T_total @ P_h.T  (P_h가 열벡터 형태일 때)
+                # poly_h.T는 (3,4) 행렬, T_coords_total은 (3,3) 행렬. 결과는 (3,4)
+                # 다시 .T 하여 (4,3) 형태로 변환
+                transformed_poly_h = (T_coords_total @ poly_h.T).T
 
-                # 현재는 변환 행렬 M_total이 없으므로, 변환 없이 진행 (부정확)
-                transformed_poly_h = poly_h
+                # 동차 좌표를 데카르트 좌표로 변환 (w 성분으로 나누기)
+                # transformed_poly_h의 마지막 열(w 성분)이 0에 가까우면 문제 발생 가능성 (무한대 좌표)
+                # 이 경우 해당 문자는 건너뛰거나 다른 처리 필요.
+                w_coords = transformed_poly_h[:, 2]
+                if np.any(np.abs(w_coords) < 1e-7):  # w가 0에 매우 가까운 경우
+                    # print(f"Warning: char '{char_s}' resulted in near-zero w after perspective. Skipping.")
+                    continue  # 이 문자는 GT 생성에서 제외
 
-                # homogeneous to cartesian: x_cart = x_h / w_h, y_cart = y_h / w_h
-                # transformed_poly = transformed_poly_h[:, :2] / transformed_poly_h[:, 2:] # (4,2)
-                # 아핀 변환까지는 w_h가 1이므로, transformed_poly = transformed_poly_h[:,:2]
-                # 원근 변환 후에는 w_h가 1이 아닐 수 있음.
+                transformed_poly_cartesian = transformed_poly_h[:, :2] / w_coords[:, np.newaxis]
 
-                # 현재는 변환이 없다고 가정하고 진행 (이 부분 수정 필요)
-                cartesian_poly = transformed_poly_h[:, :2]
+                # 최종 크롭 영역 기준 상대 좌표로 변환
+                poly_relative_to_crop = transformed_poly_cartesian - np.array([crop_offset_x, crop_offset_y])
 
-                # 최종 크롭 영역 기준 상대 좌표
-                poly_relative_to_crop = cartesian_poly - np.array(
-                    [final_bbox_in_transformed_img[0], final_bbox_in_transformed_img[1]]
-                )
                 char_infos_list_relative_to_cropped.append(
                     CharInfo(poly_relative_to_crop, char_s, rel_word_id)
                 )
-            # ----- 변환 행렬 계산 및 적용 로직 끝 -----
 
         return cropped_final_text_img, char_infos_list_relative_to_cropped
 
@@ -443,64 +568,48 @@ class ImageLoader:
         y_coords_mg = np.arange(target_h_out)
         xx_mg, yy_mg = np.meshgrid(x_coords_mg, y_coords_mg)
 
-        # 1. Region Score Map 생성
+        # 1. Region Score Map 생성 (회전된 가우시안 사용)
         for char_info in all_char_infos_abs_coords:
-            # 폴리곤 좌표를 target_map_output_size (1/2 스케일) 기준으로 변환
+            if char_info.polygon is None or char_info.polygon.shape[0] < 3:
+                continue
             poly_on_map = char_info.polygon / 2.0
             poly_on_map_int = np.array(poly_on_map, dtype=np.int32)
 
-            # 문자의 회전된 최소 영역 사각형(minAreaRect) 정보 가져오기
-            # rect: ((center_x, center_y), (width, height), angle)
-            # angle: OpenCV의 minAreaRect는 너비(width)와 수평축 사이의 각도를 반환. 범위는 (-90, 0].
-            #        너비가 높이보다 길면, 각도는 너비 축의 방향. 아니면 높이 축의 방향.
             try:
-                rect_min_area_char = cv2.minAreaRect(poly_on_map_int)
-            except cv2.error:  # 점이 너무 적거나 일직선상에 있는 경우 등
-                # print(f"Warning: cv2.minAreaRect failed for char '{char_info.char_content}'. Skipping.")
-                continue  # 이 문자는 Region Score 생성에서 제외
+                rect_min_area_char = cv2.minAreaRect(poly_on_map_int.reshape(-1, 1, 2))
+            except cv2.error:
+                continue
 
-            (cx_on_map, cy_on_map), (w_on_map, h_on_map), angle_on_map_cv = rect_min_area_char
+            (cx_on_map, cy_on_map), (rect_w_on_map, rect_h_on_map), angle_on_map_cv = rect_min_area_char
 
-            # 매우 작은 크기의 문자 처리
-            w_on_map = max(w_on_map, min_char_size_on_map)
-            h_on_map = max(h_on_map, min_char_size_on_map)
+            std_dev_x_axis_aligned = (rect_w_on_map / 2.0) * gaussian_variance_scale_factor
+            std_dev_y_axis_aligned = (rect_h_on_map / 2.0) * gaussian_variance_scale_factor
+            std_dev_x_axis_aligned = max(std_dev_x_axis_aligned, 0.5)
+            std_dev_y_axis_aligned = max(std_dev_y_axis_aligned, 0.5)
+            variance_x_sq = std_dev_x_axis_aligned ** 2 + 1e-6
+            variance_y_sq = std_dev_y_axis_aligned ** 2 + 1e-6
+            angle_rad_char_coords = np.radians(-angle_on_map_cv)
+            cos_a = np.cos(angle_rad_char_coords)
+            sin_a = np.sin(angle_rad_char_coords)
 
-            # 가우시안 표준편차 계산 (문자 크기의 짧은 변 기준)
-            # CRAFT 논문에서는 문자 박스의 짧은 변의 길이에 비례하도록 표준편차를 설정.
-            short_side_on_map = min(w_on_map, h_on_map)
-            std_dev_char = short_side_on_map * gaussian_variance_scale_factor
-            std_dev_char = max(std_dev_char, 0.5)  # 최소 표준편차 값 (너무 뾰족해지는 것 방지)
-            variance_char_sq = std_dev_char ** 2 + 1e-6  # 분산 (0으로 나누기 방지)
+            # Affinity Map에서 사용된 것과 동일한 xx_mg, yy_mg를 사용합니다.
+            # 이 xx_mg, yy_mg는 루프 밖에서 (target_h_out, target_w_out) shape으로 정의되어 있습니다.
+            x_coords_shifted = xx_mg - cx_on_map  # Shape: (target_h_out, target_w_out)
+            y_coords_shifted = yy_mg - cy_on_map  # Shape: (target_h_out, target_w_out)
 
-            # 회전된 가우시안을 위한 좌표 변환:
-            # 1. 좌표계를 문자의 중심(cx_on_map, cy_on_map)으로 이동.
-            # 2. 회전된 좌표계 (문자의 주축에 정렬된)로 변환.
-            #    OpenCV의 minAreaRect 각도는 약간 다루기 까다로울 수 있음.
-            #    여기서는 간단하게 축에 정렬된 타원형 가우시안을 사용하고,
-            #    더 정확하게는 w_on_map과 h_on_map을 주축/부축의 길이로 보고
-            #    angle_on_map_cv를 사용해 회전시켜야 함.
+            # 이 연산은 (H,W) shape 배열 간의 요소별 연산이므로 문제가 없어야 합니다.
+            x_coords_rotated = x_coords_shifted * cos_a - y_coords_shifted * sin_a
+            y_coords_rotated = x_coords_shifted * sin_a + y_coords_shifted * cos_a
 
-            # 여기서는 타원형 가우시안 (각 축에 다른 분산)을 사용하고, 회전은 생략 후 폴리곤 마스크로 제한.
-            # 또는, w_on_map과 h_on_map 중 긴 쪽을 주축으로 하여 대칭적 가우시안을 사용하고 회전.
-            # 좀 더 CRAFT에 가까운 방식은, 짧은 변을 기준으로 대칭적 가우시안을 만들고,
-            # 이를 문자의 방향에 맞게 늘리거나 회전시키는 것.
-
-            # 여기서는 w_on_map, h_on_map을 각 축 방향의 크기로 보고 (회전 무시)
-            # 각 축에 대한 분산을 계산하여 타원형 가우시안 생성
-            variance_x_char_sq = ((w_on_map / 2.0) * gaussian_variance_scale_factor) ** 2 + 1e-6
-            variance_y_char_sq = ((h_on_map / 2.0) * gaussian_variance_scale_factor) ** 2 + 1e-6
-
-            # 2D 가우시안 값 계산 (축 정렬 타원형)
             gaussian_char_map_values = np.exp(
-                -(((xx_mg - cx_on_map) ** 2 / (2 * variance_x_char_sq)) +
-                  ((yy_mg - cy_on_map) ** 2 / (2 * variance_y_char_sq)))
+                -((x_coords_rotated ** 2 / (2 * variance_x_sq)) +
+                  (y_coords_rotated ** 2 / (2 * variance_y_sq)))
             )
 
-            # 가우시안을 문자 폴리곤 내부에만 적용하기 위한 마스크 생성
             char_fill_mask_on_map = np.zeros_like(region_map_np, dtype=np.uint8)
-            cv2.fillPoly(char_fill_mask_on_map, [poly_on_map_int], 1)
+            if poly_on_map_int.shape[0] > 0:
+                cv2.fillPoly(char_fill_mask_on_map, [poly_on_map_int.reshape(-1, 2)], 1)
 
-            # 기존 맵과 현재 문자 가우시안의 최대값을 취함
             region_map_np = np.maximum(region_map_np, gaussian_char_map_values * char_fill_mask_on_map)
 
         # 2. Affinity Score Map 생성

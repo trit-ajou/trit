@@ -25,9 +25,11 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
-from .datas.visualize_gt import visualize_craft_score_maps_only
+from .datas.visualize_gt import visualize_craft_gt_components
 import torch.nn.functional as F
-
+from .models.model1_util import imgproc
+import cv2
+from torch.autograd import Variable
 
 # Collate function for Model1 DataLoader
 def detection_collate_fn(batch):
@@ -93,8 +95,8 @@ class PipelineMgr:
             for i in range(num_viz_samples):
                 if i < len(self.texted_images):  # 유효한 인덱스인지 확인
                     try:
-                        # 위에서 정의한 visualize_craft_score_maps_only 함수 호출
-                        visualize_craft_score_maps_only(self.texted_images[i], i, viz_save_dir)
+                        # 위에서 정의한 visualize_craft_gt_components 함수 호출
+                        visualize_craft_gt_components(self.texted_images[i], i, viz_save_dir)
                     except Exception as e:
                         print(f"[Pipeline] Error during Score Map GT visualization for sample {i}: {e}")
 
@@ -164,14 +166,13 @@ class PipelineMgr:
 
                 print(f"[Pipeline] Starting Model 1 training from epoch {start_epoch}")
                 for epoch in range(start_epoch, self.setting.epochs):
-                # for epoch in range(start_epoch, 3):
                     model1.train()
                     epoch_loss_sum = 0.0
 
                     batch_iterator = tqdm(
                         train_loader,
-                        # desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
-                        desc=f"Epoch {epoch + 1}/{3} - Model1 Train",
+                        desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
+                        # desc=f"Epoch {epoch + 1}/{3} - Model1 Train",
                         leave=False,
                     )
                     for images, region_targets, affinity_targets in batch_iterator:  # 언패킹 수정
@@ -182,6 +183,9 @@ class PipelineMgr:
                         optimizer.zero_grad()
                         tqdm.write(f"images shape:{tuple(images.shape) }")
                         # CRAFT 모델의 forward는 (B, 2, H/2, W/2) 형태의 맵과 feature를 반환 가정
+
+
+
                         output_maps, _ = model1(images)  # model1.forward(self, x) -> y, feature
                         tqdm.write(f"output_maps shape: {tuple(output_maps.shape)}")
                         # 모델 출력에서 region/affinity map 분리
