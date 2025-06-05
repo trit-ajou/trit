@@ -10,33 +10,33 @@ def parse_args():
     parser.add_argument(
         "--model1",
         type=str,
-        default="skip",
+        default="default",
         choices=["skip", "train", "inference"],
     )
     parser.add_argument(
         "--model2",
         type=str,
-        default="skip",
+        default="default",
         choices=["skip", "train", "inference"],
     )
     parser.add_argument(
         "--model3",
         type=str,
-        default="skip",
+        default="default",
         choices=["skip", "train", "inference"],
     )
     parser.add_argument("--use_amp", action="store_true")
-    parser.add_argument("--num_workers", type=int, default=1)
-    parser.add_argument("--num_images", type=int, default=128)
+    parser.add_argument("--num_workers", type=int, default=PipelineSetting.num_workers)
+    parser.add_argument("--num_images", type=int, default=PipelineSetting.num_images)
     parser.add_argument("--use_noise", action="store_true")
-    parser.add_argument("--margin", type=int, default=4)
-    parser.add_argument("--max_objects", type=int, default=1024)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--weight_decay", type=float, default=3e-4)
-    parser.add_argument("--vis_interval", type=int, default=1)
-    parser.add_argument("--ckpt_interval", type=int, default=5)
+    parser.add_argument("--margin", type=int, default=PipelineSetting.margin)
+    parser.add_argument("--max_objects", type=int, default=PipelineSetting.max_objects)
+    parser.add_argument("--epochs", type=int, default=PipelineSetting.epochs)
+    parser.add_argument("--batch_size", type=int, default=PipelineSetting.batch_size)
+    parser.add_argument("--lr", type=float, default=PipelineSetting.lr)
+    parser.add_argument("--weight_decay", type=float, default=PipelineSetting.weight_decay)
+    parser.add_argument("--vis_interval", type=int, default=PipelineSetting.vis_interval)
+    parser.add_argument("--ckpt_interval", type=int, default=PipelineSetting.ckpt_interval)
     args = parser.parse_args()
     return args
 
