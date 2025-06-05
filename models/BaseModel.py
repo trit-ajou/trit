@@ -21,6 +21,7 @@ class BaseModel(nn.Module):
             if device
             else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         )
+        print("[BaseModel] device:", self.device)
 
     def save_checkpoint(self, model_path, epoch, optimizer_state_dict=None):
         # Ensure directory exists

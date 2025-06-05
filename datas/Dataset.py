@@ -26,20 +26,20 @@ class MangaDataset1(Dataset):
 
         if self.generate_craft_gt:
             # CRAFT 학습 모드: (이미지, Region GT, Affinity GT) 반환
-            region_gt = texted_image.region_score_map
-            affinity_gt = texted_image.affinity_score_map
+            region_gt = texted_image.region_score_map.to(torch.float32)
+            affinity_gt = texted_image.affinity_score_map.to(torch.float32)
 
             # ImageLoader에서 GT 생성 실패 시 None이 올 수 있으므로, 기본 0 텐서로 대체
             if region_gt is None:
                 out_h = input_tensor.shape[1] // 2;
                 out_w = input_tensor.shape[2] // 2
-                # region_gt = torch.zeros((1, out_h, out_w), device=input_tensor.device)
-                region_gt = torch.zeros((1, out_h, out_w), device='cpu')
+                region_gt = torch.zeros((1, out_h, out_w), device=input_tensor.device)
+                # region_gt = torch.zeros((1, out_h, out_w), device='cpu')
             if affinity_gt is None:
                 out_h = input_tensor.shape[1] // 2;
                 out_w = input_tensor.shape[2] // 2
-                # affinity_gt = torch.zeros((1, out_h, out_w), device=input_tensor.device)
-                affinity_gt = torch.zeros((1, out_h, out_w), device='cpu')
+                affinity_gt = torch.zeros((1, out_h, out_w), device=input_tensor.device)
+                # affinity_gt = torch.zeros((1, out_h, out_w), device='cpu')
 
             return input_tensor, region_gt, affinity_gt
         else:

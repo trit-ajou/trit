@@ -26,7 +26,7 @@ from copy import deepcopy
 from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
 from .datas.visualize_gt import visualize_craft_score_maps_only
-
+import torch.nn.functional as F
 
 
 # Collate function for Model1 DataLoader
@@ -164,12 +164,14 @@ class PipelineMgr:
 
                 print(f"[Pipeline] Starting Model 1 training from epoch {start_epoch}")
                 for epoch in range(start_epoch, self.setting.epochs):
+                # for epoch in range(start_epoch, 3):
                     model1.train()
                     epoch_loss_sum = 0.0
 
                     batch_iterator = tqdm(
                         train_loader,
-                        desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
+                        # desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
+                        desc=f"Epoch {epoch + 1}/{3} - Model1 Train",
                         leave=False,
                     )
                     for images, region_targets, affinity_targets in batch_iterator:  # 언패킹 수정
@@ -178,22 +180,37 @@ class PipelineMgr:
                         affinity_targets = affinity_targets.to(model1.device)
 
                         optimizer.zero_grad()
-
+                        tqdm.write(f"images shape:{tuple(images.shape) }")
                         # CRAFT 모델의 forward는 (B, 2, H/2, W/2) 형태의 맵과 feature를 반환 가정
                         output_maps, _ = model1(images)  # model1.forward(self, x) -> y, feature
-
+                        tqdm.write(f"output_maps shape: {tuple(output_maps.shape)}")
                         # 모델 출력에서 region/affinity map 분리
                         # y의 형태가 (B, H_out, W_out, 2) 였다면:
                         # pred_region_map_batch = output_maps[..., 0].permute(0,3,1,2) # (B,1,H,W) 필요시
                         # pred_affinity_map_batch = output_maps[..., 1].permute(0,3,1,2)
                         # 현재 모델 출력이 (B, 2, H/2, W/2)로 가정:
-                        pred_region_map_batch = output_maps[:, 0, :, :].unsqueeze(1)  # (B, 1, H/2, W/2)
-                        pred_affinity_map_batch = output_maps[:, 1, :, :].unsqueeze(1)  # (B, 1, H/2, W/2)
+                        # output_maps: (B, H, W, 2)
+                        output_maps = output_maps.permute(0, 3, 1, 2)  # → (B, 2, H, W)
 
-                        # 손실 계산 (예: MSE)
-                        loss_r = torch.nn.functional.mse_loss(pred_region_map_batch, region_targets)
-                        loss_a = torch.nn.functional.mse_loss(pred_affinity_map_batch, affinity_targets)
+                        pred_region_map_batch = output_maps[:, 0:1]  # (B, 1, H, W)
+                        pred_affinity_map_batch = output_maps[:, 1:2]  # (B, 1, H, W)
+
+                        # 1) 학습 루프에서 손실 정의
+                        pos = region_targets.sum()
+                        neg = region_targets.numel() - pos
+                        w = neg / (pos + 1e-6)  # pos_weight
+
+                        loss_r = F.binary_cross_entropy_with_logits(
+                            pred_region_map_batch, region_targets,
+                            pos_weight=torch.tensor([w], device=model1.device))
+
+                        loss_a = F.binary_cross_entropy_with_logits(
+                            pred_affinity_map_batch, affinity_targets,
+                            pos_weight=torch.tensor([w], device=model1.device))
                         total_batch_loss = loss_r + loss_a
+                        tqdm.write(
+                            f"pred region min/max: {pred_region_map_batch.min():.3f} / {pred_region_map_batch.max():.3f}")
+                        tqdm.write(f"GT   region min/max: {region_targets.min():.3f} / {region_targets.max():.3f}")
 
                         total_batch_loss.backward()
                         optimizer.step()
@@ -233,8 +250,11 @@ class PipelineMgr:
 
                             # 모델 출력 형식에 따라 pred_region_vis, pred_affinity_vis 추출
                             # 예: pred_maps_model_output가 (1, 2, H/2, W/2) 라면
-                            pred_region_vis = pred_maps_model_output[0, 0, :, :].cpu().numpy()
-                            pred_affinity_vis = pred_maps_model_output[0, 1, :, :].cpu().numpy()
+                            maps_CHW = pred_maps_model_output.permute(0, 3, 1, 2)  # -> (B, 2, H, W)
+                            pred_region_vis = torch.sigmoid(maps_CHW[0, 0]).cpu().numpy()
+                            pred_affinity_vis = torch.sigmoid(maps_CHW[0, 1]).cpu().numpy()
+                            tqdm.write(f"pred_region_vis shape:{tuple(pred_region_vis.shape)}")
+                            tqdm.write(f"pred_affinity_vis shape:{tuple(pred_affinity_vis.shape)}")
                             # 예: pred_maps_model_output가 (1, H/2, W/2, 2) 라면
                             # pred_region_vis = pred_maps_model_output[0, :, :, 0].cpu().numpy()
                             # pred_affinity_vis = pred_maps_model_output[0, :, :, 1].cpu().numpy()

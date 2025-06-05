@@ -33,7 +33,7 @@ class PipelineSetting:
     use_noise = False
     margin = 4
     max_objects = 1024
-    epochs = 100
+    epochs = 10
     batch_size = 4
     lr = 0.001
     weight_decay = 3e-4

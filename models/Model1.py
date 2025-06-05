@@ -26,7 +26,7 @@ class _DoubleConv(nn.Module):
 
 # CRAFT ver.
 class Model1(BaseModel):
-    def __init__(self, pretrained=False, freeze=False):
+    def __init__(self, pretrained=True, freeze=True):
         super().__init__()
 
         """ Base network """
@@ -52,10 +52,15 @@ class Model1(BaseModel):
         init_weights(self.upconv3.modules())
         init_weights(self.upconv4.modules())
         init_weights(self.conv_cls.modules())
+        last_conv = self.conv_cls[-1]          # nn.Conv2d(16 → 2)
+        if last_conv.bias is not None:
+            nn.init.constant_(last_conv.bias, -4.0)
+        self.to(self.device)
 
     def forward(self, x):
         """ Base network """
         sources = self.basenet(x)
+        sources = [s.detach() for s in sources]  # 그래프 연결 완전 끊기
 
         """ U network """
         y = torch.cat([sources[0], sources[1]], dim=1)
