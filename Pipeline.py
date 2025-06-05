@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
-
+from .datas.visualize_gt import visualize_craft_score_maps_only
 
 
 
@@ -70,17 +70,33 @@ class PipelineMgr:
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################
+        if self.setting.model1_mode == ModelMode.TRAIN: # 모델1 학습 시에만 GT 생성
+            should_generate_craft_gt_for_step1 = True
+        else: # 추론 또는 다른 모델 사용 시에는 GT 생성 안 함 (기존 동작)
+            should_generate_craft_gt_for_step1 = False
 
         if self.setting.timg_generation == TimgGeneration.generate_only:
             print("[Pipeline] Generating TextedImages")
             self.texted_images = self.imageloader.load_images(
-                self.setting.num_images, self.setting.clear_img_dir)
+                self.setting.num_images, self.setting.clear_img_dir, should_generate_craft_gt_for_step1)
 
         elif self.setting.timg_generation == TimgGeneration.generate_save:
-            print("[Pipeline] Generating TextedImages and Save")
+            print("[Pipeline] Generating TextedImages and Save", should_generate_craft_gt_for_step1)
             self.texted_images = self.imageloader.load_images(
                 self.setting.num_images, self.setting.clear_img_dir)
             save_timgs(self.texted_images, self.setting.texted_img_dir)
+            num_viz_samples = getattr(self.setting, 'num_gt_viz_samples', 3)  # 설정 또는 기본값
+            num_viz_samples = min(num_viz_samples, len(self.texted_images))
+
+            # 시각화 이미지 저장 디렉토리 (output_img_dir 내부에 생성)
+            viz_save_dir = os.path.join(self.setting.output_img_dir, "generated_score_map_samples")
+            for i in range(num_viz_samples):
+                if i < len(self.texted_images):  # 유효한 인덱스인지 확인
+                    try:
+                        # 위에서 정의한 visualize_craft_score_maps_only 함수 호출
+                        visualize_craft_score_maps_only(self.texted_images[i], i, viz_save_dir)
+                    except Exception as e:
+                        print(f"[Pipeline] Error during Score Map GT visualization for sample {i}: {e}")
 
         elif self.setting.timg_generation == TimgGeneration.use_saved:
             print("[Pipeline] Loading Saved TextedImages")
@@ -93,10 +109,15 @@ class PipelineMgr:
 
 
         ################################################### Step 2: BBox Merge ###############################################
-        print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
-        for texted_image in self.texted_images:
-            texted_image.merge_bboxes_with_margin(self.setting.margin)
-
+        # print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
+        # for texted_image in self.texted_images:
+        #     texted_image.merge_bboxes_with_margin(self.setting.margin)
+        if hasattr(self.texted_images[0], 'merge_bboxes_with_margin') and callable(getattr(self.texted_images[0], 'merge_bboxes_with_margin')):
+            print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
+            for texted_image in self.texted_images:
+                texted_image.merge_bboxes_with_margin(self.setting.margin)
+        else:
+            print("[Pipeline] Skipping BBox Merge (method not found in TextedImage)")
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
             # This list is already created by the existing code structure if we assume
@@ -113,15 +134,22 @@ class PipelineMgr:
 
                 # Consider splitting texted_images_for_model1 into train/val sets for robust evaluation.
                 # For now, using the full list for training as per initial plan.
-                train_dataset = MangaDataset1(texted_images_for_model1)
-
+                train_dataset = MangaDataset1(
+                    texted_images_for_model1,
+                    # ImageLoader에서 이미지를 생성하므로, Dataset에서 transforms는 주로 정규화 등
+                    # torchvision.transforms.Compose([...]) 등으로 전달 가능
+                    # CRAFT 모델은 입력 이미지를 특정 방식으로 정규화해야 할 수 있음
+                    # (예: ImageNet 평균/표준편차) - 이 부분은 모델 정의 또는 학습 스크립트에서 명시되어야 함.
+                    # 여기서는 ImageLoader가 이미 올바른 Tensor를 생성했다고 가정.
+                    generate_craft_gt=True  # Dataset이 GT를 반환하도록 명시 (선택적 파라미터로 추가 가능)
+                )
                 train_loader = DataLoader(
                     train_dataset,
                     batch_size=self.setting.batch_size,
                     shuffle=True,
                     num_workers=self.setting.num_workers,
-                    collate_fn=detection_collate_fn,
-                    persistent_workers= True,
+                    collate_fn=None, # 또는 명시적으로 default_collate 사용 (보통 None이면 알아서 default_collate)
+                    persistent_workers= (self.setting.num_workers > 0),
                     pin_memory = True,
                 )
 
@@ -137,26 +165,43 @@ class PipelineMgr:
                 print(f"[Pipeline] Starting Model 1 training from epoch {start_epoch}")
                 for epoch in range(start_epoch, self.setting.epochs):
                     model1.train()
-                    epoch_loss = 0.0
+                    epoch_loss_sum = 0.0
 
                     batch_iterator = tqdm(
                         train_loader,
                         desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
                         leave=False,
                     )
-                    for images, targets in batch_iterator:
-                        # Model1.forward handles moving images and targets to its device.
-                        loss_dict = model1(images, targets)
-                        total_loss = sum(loss for loss in loss_dict.values())
+                    for images, region_targets, affinity_targets in batch_iterator:  # 언패킹 수정
+                        images = images.to(model1.device)  # 필요시 device로 이동
+                        region_targets = region_targets.to(model1.device)
+                        affinity_targets = affinity_targets.to(model1.device)
 
                         optimizer.zero_grad()
-                        total_loss.backward()
+
+                        # CRAFT 모델의 forward는 (B, 2, H/2, W/2) 형태의 맵과 feature를 반환 가정
+                        output_maps, _ = model1(images)  # model1.forward(self, x) -> y, feature
+
+                        # 모델 출력에서 region/affinity map 분리
+                        # y의 형태가 (B, H_out, W_out, 2) 였다면:
+                        # pred_region_map_batch = output_maps[..., 0].permute(0,3,1,2) # (B,1,H,W) 필요시
+                        # pred_affinity_map_batch = output_maps[..., 1].permute(0,3,1,2)
+                        # 현재 모델 출력이 (B, 2, H/2, W/2)로 가정:
+                        pred_region_map_batch = output_maps[:, 0, :, :].unsqueeze(1)  # (B, 1, H/2, W/2)
+                        pred_affinity_map_batch = output_maps[:, 1, :, :].unsqueeze(1)  # (B, 1, H/2, W/2)
+
+                        # 손실 계산 (예: MSE)
+                        loss_r = torch.nn.functional.mse_loss(pred_region_map_batch, region_targets)
+                        loss_a = torch.nn.functional.mse_loss(pred_affinity_map_batch, affinity_targets)
+                        total_batch_loss = loss_r + loss_a
+
+                        total_batch_loss.backward()
                         optimizer.step()
 
-                        epoch_loss += total_loss.item()
-                        batch_iterator.set_postfix(loss=f"{total_loss.item():.4f}")
+                        epoch_loss_sum += total_batch_loss.item()
+                        batch_iterator.set_postfix(loss=f"{total_batch_loss.item():.4f}")
 
-                    avg_epoch_loss = epoch_loss / len(train_loader)
+                    avg_epoch_loss = epoch_loss_sum / len(train_loader)
                     print(
                         f"[Pipeline] Epoch {epoch+1}/{self.setting.epochs} - Model 1 Average Training Loss: {avg_epoch_loss:.4f}"
                     )
@@ -166,68 +211,92 @@ class PipelineMgr:
                             model1_ckpt_path, epoch, optimizer.state_dict()
                         )
 
-                    if (epoch + 1) % self.setting.vis_interval == 0 and len(
-                        texted_images_for_model1
-                    ) > 0:
-                        print(
-                            f"[Pipeline] Visualizing Model 1 output for epoch {epoch+1}"
-                        )
+                    if (epoch + 1) % self.setting.vis_interval == 0 and len(texted_images_for_model1) > 0:
+                        print(f"[Pipeline] Visualizing Model 1 (CRAFT) output for epoch {epoch + 1}")
                         model1.eval()
 
-                        vis_texted_image_orig = texted_images_for_model1[
-                            0
-                        ]  # Use first image from the dataset
+                        # 시각화할 샘플 가져오기 (MangaDataset1에서 직접)
+                        # Dataset의 __getitem__은 정규화된 이미지와 GT맵을 반환.
+                        # 시각화를 위해서는 정규화 전 이미지와 GT맵이 필요.
+                        # TextedImage 객체를 직접 사용하는 것이 좋음.
+                        vis_idx = 0  # 첫 번째 샘플 시각화
+                        vis_texted_image_obj = texted_images_for_model1[vis_idx]
 
-                        # Prepare image for model input (single image in a list)
-                        # Model's forward method handles moving to device
-                        img_for_pred = [vis_texted_image_orig.timg]
+                        # 모델 입력 준비 (정규화 필요시 적용)
+                        img_for_pred_tensor = vis_texted_image_obj.timg.unsqueeze(0).to(model1.device)
+                        # if train_dataset.transforms: # Dataset에 transform이 있다면 동일하게 적용
+                        #    img_for_pred_tensor = train_dataset.transforms(img_for_pred_tensor)
 
                         with torch.no_grad():
-                            predictions = model1(img_for_pred, None)
+                            # 모델 예측 (튜플 반환: (score_maps_permuted, features) 또는 (score_maps_B2HW, features) )
+                            pred_maps_model_output, _ = model1(img_for_pred_tensor)
 
-                        vis_texted_image_pred = deepcopy(vis_texted_image_orig)
+                            # 모델 출력 형식에 따라 pred_region_vis, pred_affinity_vis 추출
+                            # 예: pred_maps_model_output가 (1, 2, H/2, W/2) 라면
+                            pred_region_vis = pred_maps_model_output[0, 0, :, :].cpu().numpy()
+                            pred_affinity_vis = pred_maps_model_output[0, 1, :, :].cpu().numpy()
+                            # 예: pred_maps_model_output가 (1, H/2, W/2, 2) 라면
+                            # pred_region_vis = pred_maps_model_output[0, :, :, 0].cpu().numpy()
+                            # pred_affinity_vis = pred_maps_model_output[0, :, :, 1].cpu().numpy()
 
-                        try:
-                            pil_img_for_draw = VTF.to_pil_image(
-                                vis_texted_image_pred.timg.cpu()
-                            )
-                            draw = ImageDraw.Draw(pil_img_for_draw)
+                        # 시각화 함수 호출 (이전 답변에서 제안한 visualize_texted_image_data 사용)
+                        # 이 함수는 TextedImage 객체를 받으므로, 예측값을 여기에 임시로 넣어주거나,
+                        # 별도의 시각화 함수를 만들어 GT와 Prediction을 함께 그림.
 
-                            # This is already implemented in TextedImage.visualize
-                            # # Draw ground truth bboxes (red)
-                            # for bbox in vis_texted_image_pred.bboxes:
-                            #     draw.rectangle(
-                            #         [(bbox.x1, bbox.y1), (bbox.x2, bbox.y2)],
-                            #         outline="red",
-                            #         width=2,
-                            #     )
+                        # visualize_texted_image_data 함수를 확장하여 예측값도 함께 표시하도록 수정 필요.
+                        # 또는, 간단히 GT와 Prediction을 나란히 표시.
 
-                            if predictions and len(predictions) > 0:
-                                pred_boxes = predictions[0]["boxes"].cpu().numpy()
-                                pred_scores = predictions[0]["scores"].cpu().numpy()
-                                for box_idx, box in enumerate(pred_boxes):
-                                    if (
-                                        pred_scores[box_idx] > 0.5
-                                    ):  # Confidence threshold
-                                        draw.rectangle(
-                                            [(box[0], box[1]), (box[2], box[3])],
-                                            outline="green",
-                                            width=2,
-                                        )
+                        # 임시 TextedImage 객체 생성 (시각화용)
+                        # GT 맵은 texted_images_for_model1[vis_idx]에 이미 있어야 함.
+                        gt_region_map_vis = vis_texted_image_obj.region_score_map.squeeze().cpu().numpy() \
+                            if vis_texted_image_obj.region_score_map is not None else None
+                        gt_affinity_map_vis = vis_texted_image_obj.affinity_score_map.squeeze().cpu().numpy() \
+                            if vis_texted_image_obj.affinity_score_map is not None else None
 
-                            vis_texted_image_pred.timg = VTF.to_tensor(pil_img_for_draw)
-                            vis_output_filename = f"model1_train_viz.png"
-                            vis_texted_image_pred.visualize(
-                                dir=self.setting.output_img_dir,
-                                filename=vis_output_filename,
-                            )
-                            print(
-                                f"[Pipeline] Saved Model 1 training visualization to {os.path.join(self.setting.output_img_dir, vis_output_filename)}"
-                            )
-                        except Exception as e:
-                            print(f"[Pipeline] Error during Model 1 visualization: {e}")
+                        # Matplotlib으로 GT와 Prediction 나란히 그리기
+                        num_cols_vis = 2  # GT Region, Pred Region (Affinity도 추가 가능)
+                        if gt_affinity_map_vis is not None and pred_affinity_vis is not None:
+                            num_cols_vis += 2
+
+                        fig_vis, axes_vis = plt.subplots(1, num_cols_vis, figsize=(5 * num_cols_vis, 5))
+                        fig_vis.suptitle(f"Epoch {epoch + 1} - Sample {vis_idx}", fontsize=16)
+
+                        current_ax_idx = 0
+                        if gt_region_map_vis is not None:
+                            axes_vis[current_ax_idx].imshow(gt_region_map_vis, cmap='jet', vmin=0, vmax=1)
+                            axes_vis[current_ax_idx].set_title("GT Region")
+                            axes_vis[current_ax_idx].axis('off');
+                            current_ax_idx += 1
+
+                        axes_vis[current_ax_idx].imshow(pred_region_vis, cmap='jet', vmin=0, vmax=1)
+                        axes_vis[current_ax_idx].set_title("Pred Region")
+                        axes_vis[current_ax_idx].axis('off');
+                        current_ax_idx += 1
+
+                        if gt_affinity_map_vis is not None:
+                            axes_vis[current_ax_idx].imshow(gt_affinity_map_vis, cmap='jet', vmin=0, vmax=1)
+                            axes_vis[current_ax_idx].set_title("GT Affinity")
+                            axes_vis[current_ax_idx].axis('off');
+                            current_ax_idx += 1
+
+                        if pred_affinity_vis is not None:
+                            axes_vis[current_ax_idx].imshow(pred_affinity_vis, cmap='jet', vmin=0, vmax=1)
+                            axes_vis[current_ax_idx].set_title("Pred Affinity")
+                            axes_vis[current_ax_idx].axis('off');
+                            current_ax_idx += 1
+
+                        # 원본 이미지 및 문자 폴리곤도 함께 표시하면 좋음 (이전 visualize_texted_image_data 참고)
+                        # (예: 첫 번째 행에 이미지, 두 번째 행에 스코어 맵)
+
+                        vis_output_filename_train = f"model1_train_epoch{epoch + 1}_sample{vis_idx}_pred_gt.png"
+                        save_path_train_vis = os.path.join(self.setting.output_img_dir, vis_output_filename_train)
+                        plt.tight_layout(rect=[0, 0, 1, 0.96])  # suptitle 공간 확보
+                        plt.savefig(save_path_train_vis)
+                        plt.close(fig_vis)
+                        print(f"[Pipeline] Saved Model 1 training visualization to {save_path_train_vis}")
 
                         model1.train()  # Set back to train mode
+                    # -------- 수정 끝 (학습 중 시각화 부분) --------
 
             elif self.setting.model1_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 1 Inference")
@@ -255,17 +324,6 @@ class PipelineMgr:
                         poly=False,
 
                     )
-                    # [DBG-A] test_net 내부 출력
-                    # print(f"[DBG] img {idx} → "
-                    #       f"score_text.max={score_text.max():.3f}, "
-                    #       f"raw_boxes={len(bboxes)}")
-
-                    # ───────── 모델 weight / device 확인 (첫 루프에서만) ─────────
-                    # if idx == 0:
-                    #     p = next(model1.parameters())
-                    #     print("[DBG] model weight mean:", p.mean().item())
-                    #     print("[DBG] model weight device:", p.device)
-
                     def to_rect(pts):
                         """
                         pts : np.ndarray([[x, y], ...])     ─ shape (4,2) or (N,2)
@@ -277,36 +335,7 @@ class PipelineMgr:
                         return BBox(int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
 
                     rects = [to_rect(b) for b in bboxes]  # (4,2) → (x1,y1,x2,y2)
-                    # print("----------------rects---------------")
-                    # print(rects)
-                    # print("---------------------------------")
-                    # new_bboxes_list = []
-                    # if predictions and len(predictions) > 0:
-                    #     pred_dict = predictions[
-                    #         0
-                    #     ]  # Predictions for the first (and only) image
-                    #     pred_boxes = pred_dict["boxes"].cpu()
-                    #     pred_scores = pred_dict["scores"].cpu()
-                    #
-                    #     score_threshold = 0.5  # Hardcoded threshold
-                    #     keep_indices = pred_scores > score_threshold
-                    #
-                    #     final_boxes_tensor = pred_boxes[keep_indices]
-                    #
-                    #     for box_coords in final_boxes_tensor:
-                    #         x1, y1, x2, y2 = box_coords.tolist()
-                    #         # Ensure coordinates are within image bounds and valid
-                    #         img_h, img_w = texted_image_copy.img_size
-                    #         x1 = max(0, min(x1, img_w - 1))
-                    #         y1 = max(0, min(y1, img_h - 1))
-                    #         x2 = max(0, min(x2, img_w - 1))
-                    #         y2 = max(0, min(y2, img_h - 1))
-                    #         if x1 < x2 and y1 < y2:  # Ensure valid box
-                    #             new_bboxes_list.append(
-                    #                 BBox(int(x1), int(y1), int(x2), int(y2))
-                    #             )
 
-                    # Update the bboxes in the ORIGINAL TextedImage object in self.texted_images
                     self.texted_images[idx].bboxes = rects
 
                 print(

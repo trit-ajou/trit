@@ -8,7 +8,7 @@ from .Utils import BBox
 import json, glob, random, os
 from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
@@ -255,29 +255,76 @@ class TextedImage:
         plt.tight_layout()
         plt.savefig(dir + "/" + filename)
         plt.close()
+
+'''
+    TextedImage 저장 유틸
+'''
 def _save_one(idx: int, txt_img, out_dir: str):
     os.makedirs(out_dir, exist_ok=True)
-    oimg = f"oimg_{idx:04d}.png"
-    timg = f"timg_{idx:04d}.png"
-    mask = f"timg_{idx:04d}_mask.png"
-    meta = f"timg_{idx:04d}.json"
+
+    oimg_fn = f"oimg_{idx:04d}.png"
+    timg_fn = f"timg_{idx:04d}.png"
+    mask_fn = f"timg_{idx:04d}_mask.png"
+    meta_fn = f"timg_{idx:04d}.json"
+
+    char_infos_fn: Optional[str] = None
+    # --- Score Map 파일 이름을 이미지 확장자로 변경 ---
+    region_map_img_fn: Optional[str] = None
+    affinity_map_img_fn: Optional[str] = None
 
     try:
-        to_pil_image(txt_img.orig.cpu()).save(out_dir + "/" + oimg)
-        to_pil_image(txt_img.timg.cpu()).save(out_dir + "/" + timg)
-        to_pil_image(txt_img.mask.squeeze(0).cpu()).save(out_dir + "/" + mask)
+        # 기본 이미지 및 마스크 저장 (기존과 동일)
+        to_pil_image(txt_img.orig.cpu()).save(os.path.join(out_dir, oimg_fn))
+        to_pil_image(txt_img.timg.cpu()).save(os.path.join(out_dir, timg_fn))
+        # 마스크는 이미 0 또는 1의 값을 가지는 텐서일 수 있으므로,
+        # to_pil_image가 처리할 수 있도록 (0-255 스케일링 또는 모드 명시)
+        # 여기서는 (0,1) 범위의 float 텐서가 (0,255)로 자동 스케일링된다고 가정
+        mask_squeezed = txt_img.mask.squeeze(0).cpu()
+        if mask_squeezed.dtype == torch.bool:  # bool 타입이면 float으로 변환
+            mask_squeezed = mask_squeezed.float()
+        to_pil_image(mask_squeezed).save(os.path.join(out_dir, mask_fn))
 
-        data = {
-            "orig": oimg,
-            "img":  timg,
-            "mask": mask,
-            "bboxes": [[b.x1, b.y1, b.x2, b.y2] for b in txt_img.bboxes],
+        data: Dict[str, Any] = {
+            "orig": oimg_fn,
+            "img": timg_fn,
+            "mask": mask_fn,
+            "bboxes": [[b.x1, b.y1, b.x2, b.y2] for b in txt_img.bboxes if b is not None],
         }
-        with open(out_dir + "/" + meta, "w") as f:
+
+        # CharInfo 저장 (기존과 동일 - .npy)
+        if txt_img.all_char_infos is not None:
+            char_infos_fn = f"timg_{idx:04d}_char_infos.npy"
+            char_infos_to_save = [
+                {"polygon": ci.polygon.tolist(), "char_content": ci.char_content, "word_id": ci.word_id}
+                for ci in txt_img.all_char_infos
+            ]
+            np.save(os.path.join(out_dir, char_infos_fn), char_infos_to_save, allow_pickle=True)
+            data["char_infos_file"] = char_infos_fn
+
+        # --- Region Score Map을 이미지로 저장 ---
+        if txt_img.region_score_map is not None:
+            region_map_img_fn = f"timg_{idx:04d}_region_map.png"  # PNG로 저장
+            # Score Map은 (0,1) 범위의 float 텐서 (예: (1, H/2, W/2))
+            # 이를 (0,255) 범위의 uint8 PIL 이미지로 변환하여 저장
+            region_map_tensor = txt_img.region_score_map.squeeze(0).cpu()  # (H/2, W/2)
+            # 0-1 범위를 0-255로 스케일링
+            region_map_scaled = (region_map_tensor * 255.0).byte()  # .byte()는 .to(torch.uint8)와 유사
+            to_pil_image(region_map_scaled).save(os.path.join(out_dir, region_map_img_fn))
+            data["region_map_image_file"] = region_map_img_fn  # 키 이름 변경
+
+        # --- Affinity Score Map을 이미지로 저장 ---
+        if txt_img.affinity_score_map is not None:
+            affinity_map_img_fn = f"timg_{idx:04d}_affinity_map.png"  # PNG로 저장
+            affinity_map_tensor = txt_img.affinity_score_map.squeeze(0).cpu()  # (H/2, W/2)
+            affinity_map_scaled = (affinity_map_tensor * 255.0).byte()
+            to_pil_image(affinity_map_scaled).save(os.path.join(out_dir, affinity_map_img_fn))
+            data["affinity_map_image_file"] = affinity_map_img_fn  # 키 이름 변경
+
+        with open(os.path.join(out_dir, meta_fn), "w") as f:
             json.dump(data, f, indent=2)
-        # print(f"[save] {meta} OK")
+
     except Exception as e:
-        print(f"[save error] idx {idx}: {e}")
+        print(f"[save error] idx {idx} ({meta_fn}): {e}")
 
 
 def save_timgs(timgs: List[TextedImage], out_dir: str, num_threads: int = 8):
@@ -293,22 +340,75 @@ def save_timgs(timgs: List[TextedImage], out_dir: str, num_threads: int = 8):
 def _load_one(json_path: str, base_dir: str, device):
     from .Utils import BBox       # 로컬에서 불러도 되도록
 
-
     with open(json_path) as f:
         meta = json.load(f)
 
-    orig = to_tensor(Image.open(base_dir + "/" + meta["orig"]).convert("RGB")).to(device)
-    if orig.dim() == 4: orig = orig.squeeze(0)
+    # 기본 이미지 및 마스크 로드 (기존과 거의 동일)
+    orig_pil = Image.open(os.path.join(base_dir, meta["orig"])).convert("RGB")
+    orig = to_tensor(orig_pil).to(device)
+    if orig.dim() == 4 and orig.shape[0] == 1: orig = orig.squeeze(0)
 
-    timg = to_tensor(Image.open(base_dir + "/" + meta["img"]).convert("RGB")).to(device)
-    if timg.dim() == 4: timg = timg.squeeze(0)
+    timg_pil = Image.open(os.path.join(base_dir, meta["img"])).convert("RGB")
+    timg = to_tensor(timg_pil).to(device)
+    if timg.dim() == 4 and timg.shape[0] == 1: timg = timg.squeeze(0)
 
-    mask = to_tensor(Image.open(base_dir + "/" + meta["mask"]).convert("L")).to(device)
-    if mask.dim() == 3: mask = mask.squeeze(0)
-    mask = mask.unsqueeze(0)
+    mask_pil = Image.open(os.path.join(base_dir, meta["mask"])).convert("L")  # Grayscale (L)
+    mask = to_tensor(mask_pil).to(device)  # (1,H,W) 또는 (H,W)
+    if mask.dim() == 2: mask = mask.unsqueeze(0)
+    # 마스크가 0 또는 1의 값을 가지도록 변환 (만약 0-255로 로드되었다면)
+    # Image.open().convert("L")은 0-255 범위. to_tensor는 이를 0-1로 스케일링.
+    # 만약 이진 마스크가 필요하면, mask = (mask > 0.5).float() 등으로 처리.
+    # 여기서는 to_tensor의 스케일링을 믿고 그대로 사용.
 
-    bboxes = [BBox(*pts) for pts in meta["bboxes"]]
-    return TextedImage(orig, timg, mask, bboxes)
+    bboxes_data = meta.get("bboxes")
+    bboxes = [BBox(*pts) for pts in bboxes_data] if bboxes_data else []
+
+    loaded_all_char_infos: Optional[List[CharInfo]] = None
+    loaded_region_map: Optional[torch.Tensor] = None
+    loaded_affinity_map: Optional[torch.Tensor] = None
+
+    # CharInfo 로드 (기존과 동일 - .npy)
+    char_infos_file = meta.get("char_infos_file")
+    if char_infos_file:
+        try:
+            char_infos_saved_data = np.load(os.path.join(base_dir, char_infos_file), allow_pickle=True)
+            loaded_all_char_infos = [
+                CharInfo(np.array(ci_data["polygon"]), ci_data["char_content"], ci_data["word_id"])
+                for ci_data in char_infos_saved_data
+            ]
+        except Exception as e:
+            print(f"Error loading char_infos_file {char_infos_file}: {e}")
+
+    # --- Region Score Map을 이미지 파일로부터 로드 ---
+    region_map_img_file = meta.get("region_map_image_file")  # 키 이름 변경
+    if region_map_img_file:
+        try:
+            region_map_pil = Image.open(os.path.join(base_dir, region_map_img_file)).convert("L")  # Grayscale
+            # PIL 이미지를 (0,1) 범위의 float 텐서로 변환
+            region_map_tensor = to_tensor(region_map_pil).to(device)  # to_tensor는 (0,255) uint8 -> (0,1) float 자동 변환
+            # (1, H/2, W/2) 형태여야 함
+            if region_map_tensor.dim() == 2: region_map_tensor = region_map_tensor.unsqueeze(0)
+            loaded_region_map = region_map_tensor
+        except Exception as e:
+            print(f"Error loading region_map_image_file {region_map_img_file}: {e}")
+
+    # --- Affinity Score Map을 이미지 파일로부터 로드 ---
+    affinity_map_img_file = meta.get("affinity_map_image_file")  # 키 이름 변경
+    if affinity_map_img_file:
+        try:
+            affinity_map_pil = Image.open(os.path.join(base_dir, affinity_map_img_file)).convert("L")
+            affinity_map_tensor = to_tensor(affinity_map_pil).to(device)
+            if affinity_map_tensor.dim() == 2: affinity_map_tensor = affinity_map_tensor.unsqueeze(0)
+            loaded_affinity_map = affinity_map_tensor
+        except Exception as e:
+            print(f"Error loading affinity_map_image_file {affinity_map_img_file}: {e}")
+
+    return TextedImage(
+        orig, timg, mask, bboxes,
+        all_char_infos=loaded_all_char_infos,
+        region_score_map=loaded_region_map,
+        affinity_score_map=loaded_affinity_map
+    )
 
 
 def load_timgs(base_dir: str, device, max_num:int|None = None, shuffle:bool = False, num_threads: int = 8) -> List[TextedImage]:
