@@ -144,4 +144,4 @@ class ImagePolicy:
     # 이 플래그가 True이면, 실제 값을 생성하는 로직에서
     # 예를 들어 font_size_ratio를 더 크게, rotation_angle 범위를 더 넓게,
     # 외곽선을 더 두껍고 화려하게, 변형을 더 강하게 적용.
-    sfx_style_prob: float = 0.1  # SFX 스타일 적용 확률
+    sfx_style_prob: float = 0.0  # SFX 스타일 적용 확률
