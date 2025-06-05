@@ -115,6 +115,11 @@ class ImageLoader:
                 # 클리핑 적용
                 clip_width = min(text_w, max_text_size[0])
                 clip_height = min(text_h, max_text_size[1])
+
+                # 최소 크기 보장 (1x1)
+                clip_width = max(1, clip_width)
+                clip_height = max(1, clip_height)
+
                 text_pil = text_pil.crop((0, 0, clip_width, clip_height))
                 text_w, text_h = text_pil.size
                 
