@@ -123,12 +123,12 @@ class ImageLoader:
             max_y = h - text_h
             
             # 텍스트가 이미지보다 크면 (이 부분은 이제 클리핑으로 처리되므로 필요 없음)
-            # if w < text_w or h < text_h:
-            #     raise ValueError("[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            if w < text_w or h < text_h:
+                raise ValueError("[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간.")
             
             # 텍스트가 max_text_size보다 크면 (이 부분도 클리핑으로 처리되므로 필요 없음)
-            # if text_w > max_text_size[0] or text_h > max_text_size[1]:
-            #     raise ValueError("[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            if text_w > max_text_size[0] or text_h > max_text_size[1]:
+                raise ValueError("[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간.")
             
             # 나머지 코드는 그대로 유지
             x = random.randint(0, max(0, max_x))
