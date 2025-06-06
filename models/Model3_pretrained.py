@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import os
 import numpy as np
 import gc
@@ -12,9 +13,9 @@ from ..datas.TextedImage import TextedImage
 # 부동소수점 행렬 곱셈 정밀도 설정
 torch.set_float32_matmul_precision('high')
 print("부동소수점 행렬 곱셈 정밀도를 'high'로 설정")
-
-class Model3:
+class Model3_pretrained(nn.Module):
     def __init__(self, model_config: dict, device: str = "cuda"):
+        super().__init__()
         self.model_config = model_config
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
@@ -44,20 +45,24 @@ class Model3:
         print("Loading Stable Diffusion Inpainting pipeline...")
 
         try:
-            # 1. Stable Diffusion 2.0 Inpainting 파이프라인 로드 (고품질 만화/망가 스타일에 적합)
-            pipe = StableDiffusionInpaintPipeline.from_pretrained(
-                "stabilityai/stable-diffusion-2-inpainting",
-                torch_dtype=torch.float16,
-            )
-
-            # 2. 모델을 GPU로 이동
-            pipe.to(self.device)
-
-            # 3. 설정 가져오기
+            # 1. 설정 가져오기
+            model_id = self.model_config["model_id"]
             prompt = self.model_config.get("prompts", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style")
             negative_prompt = self.model_config.get("negative_prompt", "deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, mutated hands and fingers, disconnected limbs, mutation, mutated, ugly, disgusting, blurry, amputation, NSFW, photo, realistic, color, colorful, purple, violet, sepia, any color tint")
             guidance_scale = self.model_config.get("guidance_scale", 7.5)
             num_inference_steps = self.model_config.get("inference_steps", 28)
+
+            # 2. Stable Diffusion 2.0 Inpainting 파이프라인 로드 (고품질 만화 스타일에 적합)
+            pipe = StableDiffusionInpaintPipeline.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+            )
+
+            # 3. 모델을 GPU로 이동
+            pipe.to(self.device)
+
+            # 3.1 VAE만 fp32로 변경 (재구성 품질 향상)
+            pipe.vae = pipe.vae.to(dtype=torch.float32)
 
             # 4. 출력 디렉토리 설정
             output_dir = self.model_config.get("output_dir", "trit/datas/images/output")
@@ -68,16 +73,6 @@ class Model3:
                 try:
                     # VRAM 관리
                     torch.cuda.empty_cache()
-
-                    # 최소 크기 검증 (너무 작은 패치는 건너뜀)
-                    if current_patch.orig.shape[1] < 8 or current_patch.orig.shape[2] < 8:
-                        print(f"Warning: Skipping too small patch of size {current_patch.orig.shape[1]}x{current_patch.orig.shape[2]}")
-                        continue
-
-                    # 패치 크기가 0인 경우 건너뜀
-                    if current_patch.orig.shape[1] == 0 or current_patch.orig.shape[2] == 0:
-                        print(f"Warning: Skipping zero-sized patch of size {current_patch.orig.shape[1]}x{current_patch.orig.shape[2]}")
-                        continue
 
                     # 원본 이미지와 마스크를 PIL로 변환
                     to_pil = transforms.ToPILImage()
@@ -92,16 +87,7 @@ class Model3:
                     # 이미지 크기 가져오기
                     width, height = orig_pil.size
 
-                    # 시드 설정 (재현성)
-                    seed = self.model_config.get("seed", 42)
-                    generator = torch.Generator(device=self.device).manual_seed(seed + i)
-
-                    # 치팅 확인용: 인페인팅 입력 상태 저장
-                    orig_pil.save(f"{output_dir}/input_orig_patch_{i:03d}.png")
-                    mask_binary_pil.save(f"{output_dir}/input_mask_patch_{i:03d}.png")
-                    print(f"Saved input files for patch {i+1}: orig and mask")
-
-                    # 인페인팅 실행
+                    # SD 인페인팅 실행
                     result = pipe(
                         prompt=prompt,
                         negative_prompt=negative_prompt,
@@ -110,7 +96,6 @@ class Model3:
                         image=orig_pil,
                         mask_image=mask_binary_pil,
                         num_inference_steps=num_inference_steps,
-                        generator=generator,
                         guidance_scale=guidance_scale,
                     ).images[0]
 

@@ -14,6 +14,7 @@ class ModelMode(Enum):
     SKIP = 0
     TRAIN = 1
     INFERENCE = 2
+    PRETRAINED = 3
 
 
 def save_ckpt(
