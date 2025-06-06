@@ -223,6 +223,10 @@ class Model3_pretrained(nn.Module):
                     latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                     timesteps_input = torch.cat([timesteps_batch] * 2, dim=0)
 
+                    # 데이터 타입 일관성 확보
+                    latent_model_input = latent_model_input.to(dtype=weight_dtype)
+                    timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
+
                     noise_pred = unet_lora(
                         sample=latent_model_input,
                         timestep=timesteps_input,
@@ -273,11 +277,14 @@ class Model3_pretrained(nn.Module):
                 avg_train_loss = epoch_loss / epoch
                 print(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}")
                 
-                # 검증 손실 계산
-                val_loss = self._calculate_validation_loss_sd2(
-                    unet_lora, vae, text_encoder, tokenizer, noise_scheduler,
-                    val_loader, weight_dtype
-                )
+                # 검증 손실 계산 (validation set이 있을 때만)
+                if val_loader is not None:
+                    val_loss = self._calculate_validation_loss_sd2(
+                        unet_lora, vae, text_encoder, tokenizer, noise_scheduler,
+                        val_loader, weight_dtype
+                    )
+                else:
+                    val_loss = float('inf')  # validation set이 없으면 무한대로 설정
                 print(f"Epoch {epoch+1}/{num_epochs} - Validation Loss: {val_loss:.4f}")
                 
                 # 에폭마다 모델 저장
@@ -399,6 +406,10 @@ class Model3_pretrained(nn.Module):
                 # CFG를 위해 복제
                 latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                 timesteps_input = torch.cat([timesteps] * 2, dim=0)
+
+                # 데이터 타입 일관성 확보
+                latent_model_input = latent_model_input.to(dtype=weight_dtype)
+                timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
 
                 noise_pred = unet_lora(
                     sample=latent_model_input,
