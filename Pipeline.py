@@ -1,8 +1,8 @@
 import torch
+import time
 from tqdm import tqdm
 from copy import copy
 from torch.utils.data import DataLoader, random_split
-import time
 
 
 from .datas.ImageLoader import ImageLoader
@@ -17,6 +17,10 @@ class PipelineMgr:
     def __init__(self, setting: PipelineSetting, policy: ImagePolicy):
         self.setting = setting
         self.imageloader = ImageLoader(setting, policy)
+        os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+        os.makedirs(self.setting.font_dir, exist_ok=True)
+        os.makedirs(self.setting.clear_img_dir, exist_ok=True)
+        os.makedirs(self.setting.output_img_dir, exist_ok=True)
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################

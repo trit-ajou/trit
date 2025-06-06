@@ -1,3 +1,5 @@
+import os
+import pickle
 import torch
 import torchvision.transforms.functional as VTF
 import matplotlib.pyplot as plt
@@ -230,5 +232,6 @@ class TextedImage:
         axes[2].imshow(mask, cmap="gray")
         axes[2].axis("off")
         plt.tight_layout()
+        os.makedirs(dir, exist_ok=True)
         plt.savefig(dir + "/" + filename)
         plt.close()
