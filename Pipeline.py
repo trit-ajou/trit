@@ -112,8 +112,14 @@ class PipelineMgr:
                 "model_id" : "stabilityai/stable-diffusion-2-inpainting",
                 "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
                 "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                "lora_path" : self.setting.lora_weight_path,
+                "epochs": self.setting.epochs,
+                "batch_size": self.setting.batch_size,
                 "guidance_scale": 7.5, #  기본값 : 7.5
                 "inference_steps" : 28, # 기본값 : 28
+                "input_size": self.setting.model3_input_size,
+                "lora_rank": self.setting.lora_rank, # LoRA rank 값
+                "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값
                 "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
                 "mask_weight": self.setting.mask_weight
                 }
