@@ -491,14 +491,34 @@ class Model3_pretrained(nn.Module):
                 torch_dtype=torch.float16,
             )
 
-            # 3. 모델을 GPU로 이동
+            # 3. LoRA 가중치 로드 및 적용 (있는 경우에만)
+            lora_weights_path = self.model_config.get("lora_path", "")
+            if lora_weights_path and os.path.exists(lora_weights_path):
+                try:
+                    # LoRA 가중치가 실제로 존재하는지 확인
+                    if os.path.exists(os.path.join(lora_weights_path, "adapter_model.safetensors")) or \
+                       os.path.exists(os.path.join(lora_weights_path, "best_model.safetensors")):
+
+                        unet = pipe.unet
+                        unet_lora = PeftModel.from_pretrained(unet, lora_weights_path)
+                        pipe.unet = unet_lora  # UNet을 LoRA 버전으로 교체
+                        print(f"✅ LoRA weights loaded from {lora_weights_path}")
+                    else:
+                        print(f"⚠️  LoRA weight files not found in {lora_weights_path}, using base model")
+                except Exception as e:
+                    print(f"⚠️  Error loading LoRA weights: {e}")
+                    print("Using base model instead")
+            else:
+                print("🔧 No LoRA path specified or path doesn't exist, using base model")
+
+            # 4. 모델을 GPU로 이동
             pipe.to(self.device)
 
-            # 4. 출력 디렉토리 설정
+            # 5. 출력 디렉토리 설정
             output_dir = self.model_config.get("output_dir", "trit/datas/images/output")
             os.makedirs(output_dir, exist_ok=True)
 
-            # 5. 각 패치 처리
+            # 6. 각 패치 처리
             for i, current_patch in enumerate(tqdm(texted_images_to_inpaint, desc="Inpainting patches")):
                 try:
                     # VRAM 관리
@@ -571,7 +591,7 @@ class Model3_pretrained(nn.Module):
                     # 오류 발생 시 원본 패치 유지
                     continue
 
-            # 6. 메모리 정리
+            # 7. 메모리 정리
             del pipe
             gc.collect()
             torch.cuda.empty_cache()
