@@ -112,9 +112,8 @@ class PipelineMgr:
                 "model_id" : "stabilityai/stable-diffusion-2-inpainting",
                 "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
                 "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                "inference_steps" : 10, # 기본값 : 10
                 "guidance_scale": 7.5, #  기본값 : 7.5
-                "inference_steps" : 10, # 기본값 : 10
+                "inference_steps" : 28, # 기본값 : 10
                 "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
                 "mask_weight": self.setting.mask_weight
                 }
