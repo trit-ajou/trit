@@ -19,7 +19,7 @@ class PipelineSetting:
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
 
-    model1_input_size = (256, 256)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
+    model1_input_size = (2048, 2560)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
     model2_input_size = (256, 256)
     model3_input_size = (256, 256)
 
@@ -56,7 +56,7 @@ class ImagePolicy:
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05)
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05) # 0.05로 하면 zero division error 안 뜸 
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률
@@ -144,4 +144,4 @@ class ImagePolicy:
     # 이 플래그가 True이면, 실제 값을 생성하는 로직에서
     # 예를 들어 font_size_ratio를 더 크게, rotation_angle 범위를 더 넓게,
     # 외곽선을 더 두껍고 화려하게, 변형을 더 강하게 적용.
-    sfx_style_prob: float = 0.1  # SFX 스타일 적용 확률
+    sfx_style_prob: float = 0.0  # SFX 스타일 적용 확률

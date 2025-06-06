@@ -32,7 +32,9 @@ class ImageLoader:
         # font cache 정의: key=(path, size)
         self.font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 
-    def load_images(self, num_images: int, dir: str) -> List[TextedImage]:
+    def load_images(
+        self, num_images: int, dir: str, max_text_size: tuple[int, int]
+    ) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
         # 노이즈 이미지 사용 안하는 경우
         if not self.setting.use_noise:
@@ -63,81 +65,89 @@ class ImageLoader:
         texted_images = []
         with multiprocessing.Pool(self.setting.num_workers) as pool:
             results = [
-                pool.apply_async(self.pil_to_texted_image, (clear_pil,))
+                pool.apply_async(self.pil_to_texted_image, (clear_pil, max_text_size))
                 for clear_pil in clear_pils
             ]
             for result in tqdm(results, total=len(results), leave=False):
                 texted_images.append(result.get())
         return texted_images
 
-    def pil_to_texted_image(self, pil: Image.Image):
+    def pil_to_texted_image(self, pil: Image.Image, max_text_size: tuple[int, int]):
         w, h = pil.size
-        orig = VTF.to_tensor(pil.convert("RGB")).to(
-            self.setting.device
-        )  # orig는 텐서로 변환만 하면 끝
+        orig = VTF.to_tensor(pil.convert("RGB")).to(self.setting.device)
         timg = orig.clone()
         mask = torch.zeros((1, h, w), device=self.setting.device)
         bboxes: List[BBox] = []
-        # timg, mask, bboxes 생성 루프
+        
+        # 텍스트 생성 루프
         num_texts = random.randint(*self.policy.num_texts)
         for i in range(num_texts):
-            # 폰트 크기 설정
+            # 폰트 크기 설정 (기존 코드)
             is_sfx_style = random.random() < self.policy.sfx_style_prob
-            font_size_ratio = random.uniform(
-                *self.policy.font_size_ratio_to_image_height_range
-            )
+            font_size_ratio = random.uniform(*self.policy.font_size_ratio_to_image_height_range)
             if is_sfx_style:
                 font_size_ratio = random.uniform(
                     self.policy.font_size_ratio_to_image_height_range[1],
-                    min(
-                        0.3, self.policy.font_size_ratio_to_image_height_range[1] * 2.5
-                    ),
+                    min(0.3, self.policy.font_size_ratio_to_image_height_range[1] * 2.5),
                 )
             font_size = max(12, int(h * font_size_ratio))
-            # 폰트 선택
+            
+            # 폰트 선택 (기존 코드)
             font = self._get_random_font(font_size)
-            if not font:  # font가 None(로딩 중 에러)이면 스킵
+            if not font:
                 continue
-            # 텍스트 pil 생성
+                
+            # 텍스트 내용 생성 (기존 코드)
             _content = self._get_random_text_content()
             wrapped_text_content = _content
             if random.random() < self.policy.multiline_prob:
-                max_textbox_width_px = int(
-                    w
-                    * random.uniform(
-                        *self.policy.textbox_width_ratio_to_image_width_range
-                    )
-                )
-                wrapped_text_content = self._wrap_text_pil(
-                    _content, font, max_textbox_width_px
-                )
-            # 텍스트 pil을 렌더링
+                max_textbox_width_px = int(w * random.uniform(*self.policy.textbox_width_ratio_to_image_width_range))
+                wrapped_text_content = self._wrap_text_pil(_content, font, max_textbox_width_px)
+                
+            # 텍스트 렌더링 (기존 코드)
             text_pil = self._render_text_layer(wrapped_text_content, font, is_sfx_style)
             if text_pil is None:
                 continue
-            # 텍스트 넣을 위치 범위 계산
+                
+            # 텍스트 크기 확인 및 클리핑 적용
             text_w, text_h = text_pil.size
+            if text_w > max_text_size[0] or text_h > max_text_size[1]:
+                # 클리핑 적용
+                clip_width = min(text_w, max_text_size[0])
+                clip_height = min(text_h, max_text_size[1])
+
+                # 최소 크기 보장 (1x1)
+                clip_width = max(1, clip_width)
+                clip_height = max(1, clip_height)
+
+                text_pil = text_pil.crop((0, 0, clip_width, clip_height))
+                text_w, text_h = text_pil.size
+                
+            # 텍스트 위치 결정 (기존 코드)
             max_x = w - text_w
             max_y = h - text_h
-            # 텍스트가 이미지보다 크면 건너뜀
-            if max_x < 0 or max_y < 0:
-                continue
-            # bbox 좌표 결정
-            x = random.randint(0, max_x)
-            y = random.randint(0, max_y)
-            # bbox 생성
+            
+            # 텍스트가 이미지보다 크면 (이 부분은 이제 클리핑으로 처리되므로 필요 없음)
+            if w < text_w or h < text_h:
+                raise ValueError("[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            
+            # 텍스트가 max_text_size보다 크면 (이 부분도 클리핑으로 처리되므로 필요 없음)
+            if text_w > max_text_size[0] or text_h > max_text_size[1]:
+                raise ValueError("[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            
+            # 나머지 코드는 그대로 유지
+            x = random.randint(0, max(0, max_x))
+            y = random.randint(0, max(0, max_y))
             bbox = BBox(x, y, x + text_w, y + text_h)
             bboxes.append(bbox)
-            # pil을 Tensor로 변환 후 rgb 채널, alpha 채널 분리
+            
             _rgba = VTF.to_tensor(text_pil).to(self.setting.device)
             _rgb = _rgba[:3, :, :]
             _alpha = _rgba[3:4, :, :]
-            # timg에 합성
             timg = TextedImage._alpha_blend(timg, bbox, _rgb, _alpha)
-            # mask 업데이트
             _mask = (_alpha > 0).float()
             mask[bbox.slice] = torch.maximum(mask[bbox.slice], _mask)
-
+        
         return TextedImage(orig, timg, mask, bboxes)
 
     def _get_random_font(self, size: int) -> Optional[ImageFont.FreeTypeFont]:

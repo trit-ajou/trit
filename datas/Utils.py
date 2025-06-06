@@ -85,7 +85,7 @@ class BBox(tuple):
         )
 
     def _safe_expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
-        w, h = img_size
+        h, w = img_size
         x1 = max(0, self.x1 - margin)
         y1 = max(0, self.y1 - margin)
         x2 = min(w, self.x2 + margin)

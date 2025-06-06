@@ -29,7 +29,7 @@ def parse_args():
         choices=["skip", "train", "inference"],
     )
     parser.add_argument("--use_amp", action="store_true")
-    parser.add_argument("--num_workers", type=int, default=0)
+    parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--num_images", type=int, default=128)
     parser.add_argument("--use_noise", action="store_true")
     parser.add_argument("--margin", type=int, default=4)

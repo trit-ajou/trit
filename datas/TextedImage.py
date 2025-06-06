@@ -107,9 +107,23 @@ class TextedImage:
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
         _, H, W = self.orig.shape
         TARGET_H, TARGET_W = size
+
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: orig.shape={self.orig.shape}, H={H}, W={W}")
+        print(f"DEBUG _resize: target size={size}, TARGET_H={TARGET_H}, TARGET_W={TARGET_W}")
+
         # Calculate aspect ratios
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Height is zero: H={H}, orig.shape={self.orig.shape}")
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Width is zero: W={W}, orig.shape={self.orig.shape}")
+
         original_aspect = W / H
         target_aspect = TARGET_W / TARGET_H
+        print(f"DEBUG _resize: original_aspect={original_aspect}, target_aspect={target_aspect}")
+
         # Resize
         if original_aspect > target_aspect:
             new_h = int(TARGET_W / original_aspect)
@@ -117,6 +131,9 @@ class TextedImage:
         else:
             new_h = TARGET_H
             new_w = int(TARGET_H * original_aspect)
+
+        print(f"DEBUG _resize: new_h={new_h}, new_w={new_w}")
+
         self.orig = VTF.resize(self.orig, (new_h, new_w))
         self.timg = VTF.resize(self.timg, (new_h, new_w))
         self.mask = VTF.resize(self.mask, (new_h, new_w))
@@ -136,6 +153,20 @@ class TextedImage:
         )
         # resize bboxes
         new_bboxes: list[BBox] = []
+
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: About to calculate scale_w = new_w / W = {new_w} / {W}")
+        print(f"DEBUG _resize: About to calculate scale_h = new_h / H = {new_h} / {H}")
+
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate scale_w")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_w={new_w}, W={W}")
+            raise ValueError(f"Width is zero when calculating scale_w: W={W}")
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate scale_h")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_h={new_h}, H={H}")
+            raise ValueError(f"Height is zero when calculating scale_h: H={H}")
+
         scale_w = new_w / W
         scale_h = new_h / H
         for bbox in self.bboxes:
