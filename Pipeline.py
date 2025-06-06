@@ -92,21 +92,21 @@ class PipelineMgr:
         if self.setting.model3_mode != ModelMode.SKIP:
 
             model_config = {
-                "model_id" : "stabilityai/stable-diffusion-3.5-medium",
-                "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
-                "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                "lora_path" : self.setting.lora_weight_path,
-                "epochs": self.setting.epochs,
-                "batch_size": self.setting.batch_size,
-                "inference_steps" : 10, # 기본값 : 10
-                "input_size": self.setting.model3_input_size,
-                "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
-                "guidance_scale": 7.5, #  기본값 : 7.5
-                "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
-                "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
-                "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
-                "mask_weight": self.setting.mask_weight
-                }
+                    "model_id" : "stabilityai/stable-diffusion-3.5-medium",
+                    "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                    "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                    "lora_path" : self.setting.lora_weight_path,
+                    "epochs": self.setting.epochs,
+                    "batch_size": self.setting.batch_size,
+                    "inference_steps" : 10, # 기본값 : 10
+                    "input_size": self.setting.model3_input_size,
+                    "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
+                    "guidance_scale": 7.5, #  기본값 : 7.5
+                    "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
+                    "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
+                    "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
+                    "mask_weight": self.setting.mask_weight
+                    }
             
             model_pretrained_config = {
                 "model_id" : "stabilityai/stable-diffusion-2-inpainting",
@@ -114,7 +114,9 @@ class PipelineMgr:
                 "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
                 "inference_steps" : 10, # 기본값 : 10
                 "guidance_scale": 7.5, #  기본값 : 7.5
+                "inference_steps" : 10, # 기본값 : 10
                 "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
+                "mask_weight": self.setting.mask_weight
                 }
             
             if self.setting.model3_mode == ModelMode.TRAIN:
