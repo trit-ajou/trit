@@ -40,15 +40,11 @@ class ImageLoader:
         self.completed_tasks = 0
         self.lock = threading.Lock()
 
-    def start_loading_async(
-        self, num_images: int, dir: str, max_text_size: tuple[int, int]
-    ):
+    def start_loading_async(self, num_images: int, dir: str, max_text_size: tuple[int, int]):
         if self.future and not self.future.done():
             raise RuntimeError("[ImageLoader] 이미 진행 중인 로딩 작업이 있습니다.")
         print("[ImageLoader] 이미지 로딩 작업을 시작합니다.")
-        self.future = self.executor.submit(
-            self._load_images, num_images, dir, max_text_size
-        )
+        self.future = self.executor.submit(self._load_images, num_images, dir, max_text_size)
 
     def get_loaded_images(self) -> List[TextedImage]:
         if not self.future:
@@ -93,9 +89,8 @@ class ImageLoader:
         """진행 중인 작업을 멈추고 executer 안전하게 종료."""
         self.executor.shutdown()
 
-    def _load_images(
-        self, num_images: int, dir: str, max_text_size: tuple[int, int]
-    ) -> List[TextedImage]:
+    def _load_images(self, num_images: int, dir: str, max_text_size: tuple[int, int]) -> List[TextedImage]:
+        # def load_images(self, num_images: int, dir: str, max_text_size: tuple[int, int]) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
         # 노이즈 이미지 사용 안하는 경우
         if not self.setting.use_noise:
@@ -114,9 +109,7 @@ class ImageLoader:
         num_noise_imgs = num_images - len(clear_pils)
         if num_noise_imgs > 0:
             h, w = self.setting.model1_input_size
-            noise_imgs = np.random.randint(
-                0, 256, (num_images, h, w, 3), dtype=np.uint8
-            )
+            noise_imgs = np.random.randint(0, 256, (num_images, h, w, 3), dtype=np.uint8)
             for noise_img in noise_imgs:
                 clear_pils.append(Image.fromarray(noise_img, "RGB"))
         # 작업 시작 전 총 작업량 초기화
@@ -124,26 +117,24 @@ class ImageLoader:
             self.total_tasks = len(clear_pils)
             self.completed_tasks = 0
         # 병렬로 TextedImage 생성
-        print(
-            f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers"
-        )
+        print(f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers")
         texted_images = []
         with ThreadPoolExecutor(self.setting.num_workers) as pool:
-            futures = [
-                pool.submit(self.pil_to_texted_image, clear_pil, max_text_size)
-                for clear_pil in clear_pils
-            ]
+            futures = [pool.submit(self.pil_to_texted_image, clear_pil, max_text_size) for clear_pil in clear_pils]
             for future in as_completed(futures):
                 texted_images.append(future.result())
                 with self.lock:
                     self.completed_tasks += 1
+        # apply_async 사용해서 병렬로 TextedImage 생성
+        # print(f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers")
+        # texted_images = []
+        # for clear_pil in tqdm(clear_pils, total=len(clear_pils), leave=False):
+        #     texted_images.append(self.pil_to_texted_image(clear_pil, max_text_size))
         return texted_images
 
     def pil_to_texted_image(self, pil: Image.Image, max_text_size: tuple[int, int]):
         w, h = pil.size
-        orig = VTF.to_tensor(pil.convert("RGB")).to(
-            self.setting.device
-        )  # orig는 텐서로 변환만 하면 끝
+        orig = VTF.to_tensor(pil.convert("RGB")).to(self.setting.device)  # orig는 텐서로 변환만 하면 끝
         timg = orig.clone()
         mask = torch.zeros((1, h, w), device=self.setting.device)
         bboxes: List[BBox] = []
@@ -152,15 +143,11 @@ class ImageLoader:
         for i in range(num_texts):
             # 폰트 크기 설정
             is_sfx_style = random.random() < self.policy.sfx_style_prob
-            font_size_ratio = random.uniform(
-                *self.policy.font_size_ratio_to_image_height_range
-            )
+            font_size_ratio = random.uniform(*self.policy.font_size_ratio_to_image_height_range)
             if is_sfx_style:
                 font_size_ratio = random.uniform(
                     self.policy.font_size_ratio_to_image_height_range[1],
-                    min(
-                        0.3, self.policy.font_size_ratio_to_image_height_range[1] * 2.5
-                    ),
+                    min(0.3, self.policy.font_size_ratio_to_image_height_range[1] * 2.5),
                 )
             font_size = max(12, int(h * font_size_ratio))
             # 폰트 선택
@@ -171,15 +158,8 @@ class ImageLoader:
             _content = self._get_random_text_content()
             wrapped_text_content = _content
             if random.random() < self.policy.multiline_prob:
-                max_textbox_width_px = int(
-                    w
-                    * random.uniform(
-                        *self.policy.textbox_width_ratio_to_image_width_range
-                    )
-                )
-                wrapped_text_content = self._wrap_text_pil(
-                    _content, font, max_textbox_width_px
-                )
+                max_textbox_width_px = int(w * random.uniform(*self.policy.textbox_width_ratio_to_image_width_range))
+                wrapped_text_content = self._wrap_text_pil(_content, font, max_textbox_width_px)
             # 텍스트 pil을 렌더링
             text_pil = self._render_text_layer(wrapped_text_content, font, is_sfx_style)
             if text_pil is None:
@@ -190,14 +170,12 @@ class ImageLoader:
             max_y = h - text_h
             # 텍스트가 이미지보다 크면
             if w < text_w or h < text_h:
-                raise ValueError(
-                    "[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간."
-                )
+                continue
+                # raise ValueError("[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간.")
             # 텍스트가 max_text_size보다 크면
             if text_w > max_text_size[0] or text_h > max_text_size[1]:
-                raise ValueError(
-                    "[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간."
-                )
+                continue
+                # raise ValueError("[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간.")
             # bbox 좌표 결정
             x = random.randint(0, max_x)
             y = random.randint(0, max_y)
@@ -335,12 +313,8 @@ class ImageLoader:
         # 그림자 설정
         shadow_params = None
         if random.random() < self.policy.shadow_prob or policy_is_sfx:
-            s_off_x_r = random.uniform(
-                *self.policy.shadow_offset_x_ratio_to_font_size_range
-            )
-            s_off_y_r = random.uniform(
-                *self.policy.shadow_offset_y_ratio_to_font_size_range
-            )
+            s_off_x_r = random.uniform(*self.policy.shadow_offset_x_ratio_to_font_size_range)
+            s_off_y_r = random.uniform(*self.policy.shadow_offset_y_ratio_to_font_size_range)
             s_blur = random.randint(*self.policy.shadow_blur_radius_range)
             s_color = self._get_random_rgba()
             if policy_is_sfx:
@@ -361,10 +335,7 @@ class ImageLoader:
             )
         # 텍스트 정렬 설정
         text_align = random.choice(self.policy.text_align_options)
-        line_spacing = int(
-            font.size
-            * (random.uniform(*self.policy.line_spacing_ratio_to_font_size_range) - 1.0)
-        )
+        line_spacing = int(font.size * (random.uniform(*self.policy.line_spacing_ratio_to_font_size_range) - 1.0))
 
         _draw_dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
         try:
@@ -430,9 +401,7 @@ class ImageLoader:
                 align=text_align,
             )
             if s_blur_radius > 0:
-                shadow_layer = shadow_layer.filter(
-                    ImageFilter.GaussianBlur(s_blur_radius)
-                )
+                shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(s_blur_radius))
             text_layer.alpha_composite(shadow_layer)
 
         draw.text(
@@ -482,10 +451,7 @@ class ImageLoader:
                     resample=Image.Resampling.BICUBIC,
                 )
 
-        if (
-            random.random() < self.policy.perspective_transform_enabled_prob
-            or policy_is_sfx
-        ):
+        if random.random() < self.policy.perspective_transform_enabled_prob or policy_is_sfx:
             current_layer_width, current_layer_height = final_transformed_layer.size
             perspective_coeffs = self._get_perspective_coeffs_numpy(
                 current_layer_width,

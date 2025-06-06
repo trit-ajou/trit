@@ -26,9 +26,7 @@ class TextedImage:
         return H, W
 
     def merge_bboxes_with_margin(self, margin: int):
-        expanded_bboxes = [
-            bbox._safe_expand(margin, self.img_size) for bbox in self.bboxes
-        ]
+        expanded_bboxes = [bbox._safe_expand(margin, self.img_size) for bbox in self.bboxes]
         new_bboxes = []
         # Keep track of which original bboxes have been merged
         merged_indices = set()
@@ -99,6 +97,11 @@ class TextedImage:
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
         _, H, W = self.orig.shape
         TARGET_H, TARGET_W = size
+
+        # Check for invalid dimensions
+        if H <= 0 or W <= 0 or TARGET_H <= 0 or TARGET_W <= 0:
+            raise ValueError(f"Invalid dimensions: input ({H}, {W}), target ({TARGET_H}, {TARGET_W})")
+
         # Calculate aspect ratios
         original_aspect = W / H
         target_aspect = TARGET_W / TARGET_H
@@ -109,6 +112,11 @@ class TextedImage:
         else:
             new_h = TARGET_H
             new_w = int(TARGET_H * original_aspect)
+
+        # Ensure new dimensions are valid
+        if new_h <= 0 or new_w <= 0:
+            raise ValueError(f"Invalid computed dimensions: new_h={new_h}, new_w={new_w}")
+
         self.orig = VTF.resize(self.orig, (new_h, new_w))
         self.timg = VTF.resize(self.timg, (new_h, new_w))
         self.mask = VTF.resize(self.mask, (new_h, new_w))
@@ -117,15 +125,9 @@ class TextedImage:
         pad_right = TARGET_W - new_w - pad_left
         pad_top = (TARGET_H - new_h) // 2
         pad_bottom = TARGET_H - new_h - pad_top
-        self.orig = VTF.pad(
-            self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1
-        )
-        self.timg = VTF.pad(
-            self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1
-        )
-        self.mask = VTF.pad(
-            self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0
-        )
+        self.orig = VTF.pad(self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1)
+        self.timg = VTF.pad(self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1)
+        self.mask = VTF.pad(self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0)
         # resize bboxes
         new_bboxes: list[BBox] = []
         scale_w = new_w / W
@@ -207,10 +209,21 @@ class TextedImage:
     def _to_pil(self):
         orig = self.orig.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
         timg = self.timg.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
-        mask = self.mask.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
+
+        # Handle mask dimensions properly
+        mask_tensor = self.mask.detach().cpu().mul(255).byte()
+        if mask_tensor.dim() == 3:
+            # If 3D (1, H, W), squeeze to 2D
+            mask = mask_tensor.squeeze(0).numpy()
+        elif mask_tensor.dim() == 2:
+            # If already 2D (H, W), use as-is
+            mask = mask_tensor.numpy()
+        else:
+            raise ValueError(f"Unexpected mask dimensions: {mask_tensor.shape}")
+
         orig = Image.fromarray(orig, "RGB")
         timg = Image.fromarray(timg, "RGB")
-        mask = Image.fromarray(mask.squeeze(), "L")
+        mask = Image.fromarray(mask, "L")
         return orig, timg, mask
 
     def visualize(self, dir=".", filename="test.png"):

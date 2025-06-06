@@ -1,14 +1,14 @@
 import os
 import torch
-from dataclasses import dataclass
-
+from typing import Literal
+from dataclasses import dataclass, field
 from .models.Utils import ModelMode
 
 
 @dataclass
 class PipelineSetting:
     device = torch.device("cpu")
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # 모델 돌릴 땐 GPU로 바꾸쇼
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 모델 돌릴 땐 GPU로 바꾸쇼
     use_amp = True
     num_workers = 4  # for imageloader
 
@@ -21,7 +21,7 @@ class PipelineSetting:
 
     model1_input_size = (1700, 2400)
     model2_input_size = (256, 256)
-    model3_input_size = (512, 512)
+    model3_input_size = (1024, 1024)
 
     num_images = 20
     use_noise = False
@@ -41,18 +41,14 @@ class PipelineSetting:
     ckpt_interval = 1
 
 
-from dataclasses import dataclass, field
-from typing import Literal
-
-
 @dataclass
 class ImagePolicy:
     # --- 기본 설정 ---
     num_texts: tuple[int, int] = (1, 5)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
-    # 텍스트 높이를 이미지 높이에 대한 비율로 설정
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.015)
+    # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률
@@ -69,37 +65,37 @@ class ImagePolicy:
     # True면 완전 랜덤 RGB 색상, False면 fixed_text_color_options에서 무작위 선택
     # "주변 배경색 대비"는 실제 렌더링 시점에 해당 위치의 배경색을 분석하여 동적으로 결정해야 함.
     # 여기서는 정책으로 랜덤 또는 고정 색상 세트 중 선택으로 단순화.
-    text_color_is_random: bool = True
+    text_color_is_random: bool = False
     fixed_text_color_options: list[tuple[int, int, int]] = field(
         default_factory=lambda: [
             (0, 0, 0),
-            (255, 255, 255),
-            (200, 200, 200),
-            (50, 50, 50),
+            # (255, 255, 255),
+            # (200, 200, 200),
+            # (50, 50, 50),
         ]  # 검정, 흰색, 밝은회색, 어두운회색
     )
     # 불투명도
     opacity_range: tuple[int, int] = (220, 255)
 
     # --- 외곽선 ---
-    stroke_prob: float = 0.6  # 외곽선 사용 확률
+    stroke_prob: float = 1.0  # 외곽선 사용 확률
     # 외곽선 두께를 텍스트 크기(높이)에 대한 비율로 설정 + 최소/최대 픽셀 제한 가능. 예) 폰트 높이의 5~15%
     stroke_width_ratio_to_font_size_range: tuple[float, float] = (0.03, 0.5)
     stroke_width_limit_px: tuple[int, int] = (2, 5)  # 최소/최대 외곽선 두께 범위 (픽셀)
     # True면 완전 랜덤 RGB 색상, False면 fixed_stroke_color_options에서 무작위 선택
-    stroke_color_is_random: bool = True
+    stroke_color_is_random: bool = False
     fixed_stroke_color_options: list[tuple[int, int, int]] = field(
         default_factory=lambda: [
-            (0, 0, 0),
+            # (0, 0, 0),
             (255, 255, 255),
-            (128, 128, 128),
-            (255, 0, 0),
-            (0, 0, 255),
+            # (128, 128, 128),
+            # (255, 0, 0),
+            # (0, 0, 255),
         ]  # 검정, 흰색, 회색, 빨강, 파랑
     )
 
     # --- 그림자 ---
-    shadow_prob: float = 0.4  # 그림자 사용 확률
+    shadow_prob: float = 0.0  # 그림자 사용 확률
     # 그림자 오프셋(x, y)을 텍스트 크기(높이)에 대한 비율로 설정
     shadow_offset_x_ratio_to_font_size_range: tuple[float, float] = (
         -0.1,
