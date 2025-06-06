@@ -148,8 +148,12 @@ class PipelineMgr:
                     )
                 ]
                 
+                # 출력 디렉토리 생성
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+
                 for i, texted_image in enumerate(texted_images_for_model3):
-                    texted_image.visualize(dir="trit/datas/images/output", filename=f"before_inpainting{i}.png")
+                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
                 
                 # 패치들을 인페인팅
                 inpainted_patches = model3.inference(texted_images_for_model3)
@@ -190,8 +194,12 @@ class PipelineMgr:
                     )
                 ]
 
+                # 출력 디렉토리 생성
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+
                 for i, texted_image in enumerate(texted_images_for_model3):
-                    texted_image.visualize(dir="trit/datas/images/output", filename=f"before_inpainting{i}.png")
+                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
                 
                 # 패치들을 인페인팅
                 inpainted_patches = model3.inference(texted_images_for_model3)

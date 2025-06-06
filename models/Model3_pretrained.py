@@ -61,8 +61,8 @@ class Model3_pretrained(nn.Module):
             # 3. 모델을 GPU로 이동
             pipe.to(self.device)
 
-            # 3.1 VAE만 fp32로 변경 (재구성 품질 향상)
-            pipe.vae = pipe.vae.to(dtype=torch.float32)
+            # 3.1 VAE를 fp16으로 유지 (타입 일관성 유지)
+            # pipe.vae = pipe.vae.to(dtype=torch.float32)  # 주석 처리
 
             # 4. 출력 디렉토리 설정
             output_dir = self.model_config.get("output_dir", "trit/datas/images/output")
