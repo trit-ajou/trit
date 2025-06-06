@@ -47,8 +47,8 @@ class Model3_pretrained(nn.Module):
         try:
             # 1. 설정 가져오기
             model_id = self.model_config["model_id"]
-            prompt = self.model_config.get("prompts", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style")
-            negative_prompt = self.model_config.get("negative_prompt", "deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, mutated hands and fingers, disconnected limbs, mutation, mutated, ugly, disgusting, blurry, amputation, NSFW, photo, realistic, color, colorful, purple, violet, sepia, any color tint")
+            prompt = self.model_config.get("prompts", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove letter")
+            negative_prompt = self.model_config.get("negative_prompt", "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry")
             guidance_scale = self.model_config.get("guidance_scale", 7.5)
             num_inference_steps = self.model_config.get("inference_steps", 28)
 
