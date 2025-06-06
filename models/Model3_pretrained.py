@@ -47,7 +47,7 @@ class Model3_pretrained(nn.Module):
         try:
             # 1. 설정 가져오기
             model_id = self.model_config["model_id"]
-            prompt = self.model_config.get("prompts", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove letter")
+            prompt = self.model_config.get("prompts", "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding")
             negative_prompt = self.model_config.get("negative_prompt", "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry")
             guidance_scale = self.model_config.get("guidance_scale", 7.5)
             num_inference_steps = self.model_config.get("inference_steps", 28)
@@ -97,7 +97,7 @@ class Model3_pretrained(nn.Module):
                         mask_image=mask_binary_pil,
                         num_inference_steps=num_inference_steps,
                         guidance_scale=guidance_scale,
-                        strength=0.9
+                        strength=0.8
                     ).images[0]
 
                     # 인페인팅 결과 저장
