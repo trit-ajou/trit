@@ -110,7 +110,7 @@ class PipelineMgr:
             
             model_pretrained_config = {
                 "model_id" : "stabilityai/stable-diffusion-2-inpainting",
-                "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
                 "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
                 "guidance_scale": 7.5, #  기본값 : 7.5
                 "inference_steps" : 28, # 기본값 : 28
@@ -178,7 +178,23 @@ class PipelineMgr:
 
                 print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
 
-            # 사전 훈련 모델 사용 
+            # 사전 훈련 모델 훈련
+            elif self.setting.model3_mode == ModelMode.PRETRAINED_TRAIN:
+
+                # 학습시에만 사용
+                texted_images_for_model3 = [
+                _splitted
+                for texted_image in self.texted_images
+                for _splitted in texted_image.split_center_crop(
+                    self.setting.model3_input_size
+                )]
+
+                print("[Pipeline] Training Model 3 Pretrained")
+                model3 = Model3_pretrained(model_pretrained_config)
+                print("[Pipeline] Calling model3_pretrained.lora_train...")
+                model3.lora_train(texted_images_for_model3)
+
+            # 사전 훈련 모델 사용
             elif self.setting.model3_mode == ModelMode.PRETRAINED:
                                 
                 print("[Pipeline] Running Model 3 Pretrained Inference")

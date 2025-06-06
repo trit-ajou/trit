@@ -26,7 +26,7 @@ def parse_args():
         "--model3",
         type=str,
         default="skip",
-        choices=["skip", "train", "inference", "pretrained"],
+        choices=["skip", "train", "inference", "pretrained", "pretrained-train"],
     )
     parser.add_argument("--use_amp", action="store_true")
     parser.add_argument("--num_workers", type=int, default=1)
@@ -73,6 +73,8 @@ if __name__ == "__main__":
         setting.model3_mode = ModelMode.INFERENCE
     elif args.model3 == "pretrained":
         setting.model3_mode = ModelMode.PRETRAINED
+    elif args.model3 == "pretrained-train":
+        setting.model3_mode = ModelMode.PRETRAINED_TRAIN
 
     setting.use_amp = args.use_amp
     setting.num_workers = args.num_workers
