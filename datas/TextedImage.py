@@ -206,6 +206,20 @@ class TextedImage:
         _bbox = bbox.coord_trans(crop_x1, crop_y1)
         return img[slice_bbox.slice], _bbox
 
+    def save(self, dir=".", filename="test.png"):
+        os.makedirs(dir, exist_ok=True)
+        with open(dir + "/" + filename, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(dir=".", filename="test.png"):
+        loc = dir + "/" + filename
+        if not os.path.exists(loc):
+            raise KeyError("[TextedImage] 파일을 못찾겠다 인간.")
+        with open(loc, "rb") as f:
+            texted_image = pickle.load(f)
+        return texted_image
+
     def _to_pil(self):
         orig = self.orig.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
         timg = self.timg.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
