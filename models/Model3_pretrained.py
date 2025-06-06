@@ -228,7 +228,7 @@ class Model3_pretrained(nn.Module):
                         timestep=timesteps_input,
                         encoder_hidden_states=prompt_embeds_full,
                         return_dict=False
-                    ).sample
+                    )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
 
                     #noise_pred 분리리
                     noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
@@ -405,7 +405,7 @@ class Model3_pretrained(nn.Module):
                     timestep=timesteps_input,
                     encoder_hidden_states=prompt_embeds_full,
                     return_dict=False
-                ).sample
+                )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
                 
                 _, noise_pred_text = noise_pred.chunk(2)
                 
