@@ -52,11 +52,11 @@ from typing import Literal
 @dataclass
 class ImagePolicy:
     # --- 기본 설정 ---
-    num_texts: tuple[int, int] = (1, 5)
+    num_texts: tuple[int, int] = (1, 3)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.1)
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률

@@ -86,14 +86,22 @@ class TextedImage:
 
     def merge_cropped(self, cropped_texted_images: list["TextedImage"]):
         for bbox, cropped_texted_image in zip(self.bboxes, cropped_texted_images):
+            # 1. 크롭된 이미지에서 텍스트 영역만 추출
             _bbox = cropped_texted_image.bboxes[0]
-            cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
-            cropped_texted_image.timg = cropped_texted_image.timg[_bbox.slice]
-            cropped_texted_image.mask = cropped_texted_image.mask[_bbox.slice]
-            cropped_texted_image._resize((bbox.height, bbox.width))
-            self.orig[bbox.slice] = cropped_texted_image.orig
-            self.timg[bbox.slice] = cropped_texted_image.timg
-            self.mask[bbox.slice] = cropped_texted_image.mask
+            
+            # 2. 마스크를 기반으로 인페인팅된 영역만 추출
+            # 마스크가 0보다 큰 영역(텍스트가 있던 영역)만 합성
+            mask = cropped_texted_image.mask
+            
+            # 3. 원본 bbox 크기에 맞게 직접 리사이즈 (패딩 없이)
+            resized_orig = VTF.resize(cropped_texted_image.orig, (bbox.height, bbox.width), 
+                                     interpolation=VTF.InterpolationMode.BILINEAR)
+            resized_mask = VTF.resize(mask, (bbox.height, bbox.width), 
+                                     interpolation=VTF.InterpolationMode.NEAREST)
+            
+            # 4. 마스크를 사용하여 원본 이미지에 합성
+            # 마스크가 있는 부분만 인페인팅된 이미지로 대체
+            self.orig[bbox.slice] = self.orig[bbox.slice] * (1 - resized_mask) + resized_orig * resized_mask
 
     def _resize(self, size: tuple[int, int]):
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
@@ -184,6 +192,7 @@ class TextedImage:
     ):
         _, H, W = img.shape
         output_h, output_w = size
+        print(f"입력 : H : {H} , W : {W}, output_w : {output_w}, output_h : {output_h}")
         bbox_center_x, bbox_center_y = bbox.center
         # 1. bbox 중심으로 이상적인 crop 영역의 좌상단(x1, y1) 계산
         crop_x1 = bbox_center_x - output_w // 2
@@ -194,14 +203,18 @@ class TextedImage:
             crop_x1 = 0
         if crop_y1 < 0:
             crop_y1 = 0
+        print(f"0으로 보정 : H : {H} , W : {W}, crop_x1 : {crop_x1}, crop_y1 : {crop_y1}, output_w : {output_w}, output_h : {output_h}")
         # 오른쪽/아래쪽 테두리 기준으로 밀어넣기
         if crop_x1 + output_w > W:
             crop_x1 = W - output_w
         if crop_y1 + output_h > H:
             crop_y1 = H - output_h
+        print(f"밀어넣기 : H : {H} , W : {W}, crop_x1 : {crop_x1}, crop_y1 : {crop_y1}, output_w : {output_w}, output_h : {output_h}")
         # 3. slice
         slice_bbox = BBox(crop_x1, crop_y1, crop_x1 + output_w, crop_y1 + output_h)
         _bbox = bbox.coord_trans(crop_x1, crop_y1)
+        #debugging H, W, crop_x1, crop_y1, output_w, output_h
+        print(f"최종 : H : {H} , W : {W}, crop_x1 : {crop_x1}, crop_y1 : {crop_y1}, output_w : {output_w}, output_h : {output_h}")
         return img[slice_bbox.slice], _bbox
 
     def _to_pil(self):

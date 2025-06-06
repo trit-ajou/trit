@@ -102,7 +102,7 @@ class PipelineMgr:
                     "lora_path" : self.setting.lora_weight_path,
                     "epochs": self.setting.epochs,
                     "batch_size": self.setting.batch_size,
-                    "inference_steps" : 10, # 기본값 : 10
+                    "inference_steps" : 3, # 기본값 : 10
                     "input_size": self.setting.model3_input_size,
                     "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
                     "guidance_scale": 7.5, #  기본값 : 7.5
