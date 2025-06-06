@@ -40,6 +40,9 @@ class PipelineSetting:
     vis_interval = 5
     ckpt_interval = 1
 
+    num_images_per_load = 100
+    reload_data_interval = 50
+
 
 @dataclass
 class ImagePolicy:

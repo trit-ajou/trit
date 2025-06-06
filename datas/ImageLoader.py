@@ -134,9 +134,9 @@ class ImageLoader:
 
     def pil_to_texted_image(self, pil: Image.Image, max_text_size: tuple[int, int]):
         w, h = pil.size
-        orig = VTF.to_tensor(pil.convert("RGB")).to(self.setting.device)  # orig는 텐서로 변환만 하면 끝
+        orig = VTF.to_tensor(pil.convert("RGB"))  # .to(self.setting.device)  # orig는 텐서로 변환만 하면 끝
         timg = orig.clone()
-        mask = torch.zeros((1, h, w), device=self.setting.device)
+        mask = torch.zeros((1, h, w))  # , device=self.setting.device)
         bboxes: List[BBox] = []
         # timg, mask, bboxes 생성 루프
         num_texts = random.randint(*self.policy.num_texts)
@@ -183,7 +183,7 @@ class ImageLoader:
             bbox = BBox(x, y, x + text_w, y + text_h)
             bboxes.append(bbox)
             # pil을 Tensor로 변환 후 rgb 채널, alpha 채널 분리
-            _rgba = VTF.to_tensor(text_pil).to(self.setting.device)
+            _rgba = VTF.to_tensor(text_pil)  # .to(self.setting.device)
             _rgb = _rgba[:3, :, :]
             _alpha = _rgba[3:4, :, :]
             # timg에 합성
