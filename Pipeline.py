@@ -143,7 +143,6 @@ class PipelineMgr:
                     # CRAFT 모델은 입력 이미지를 특정 방식으로 정규화해야 할 수 있음
                     # (예: ImageNet 평균/표준편차) - 이 부분은 모델 정의 또는 학습 스크립트에서 명시되어야 함.
                     # 여기서는 ImageLoader가 이미 올바른 Tensor를 생성했다고 가정.
-                    generate_craft_gt=True  # Dataset이 GT를 반환하도록 명시 (선택적 파라미터로 추가 가능)
                 )
                 train_loader = DataLoader(
                     train_dataset,
