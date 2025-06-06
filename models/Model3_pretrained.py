@@ -97,6 +97,7 @@ class Model3_pretrained(nn.Module):
                         mask_image=mask_binary_pil,
                         num_inference_steps=num_inference_steps,
                         guidance_scale=guidance_scale,
+                        strength=0.9
                     ).images[0]
 
                     # 인페인팅 결과 저장
