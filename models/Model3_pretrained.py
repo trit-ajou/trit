@@ -199,9 +199,29 @@ class Model3_pretrained(nn.Module):
                     
                 with autocast("cuda",dtype=weight_dtype):
                     print("[Model3-pretrained TRAIN] 노이즈 예측 중 ...")
-                    # UNet 모델로 노이즈 예측 (SD2 방식)
-                    latent_model_input = torch.cat([initial_lantents]*2, dim=0)
-                    timesteps_input = torch.cat([timesteps_batch] * 2, dim = 0)
+                    # SD2 Inpainting용 9채널 입력 구성
+                    # [latent(4) + masked_latent(4) + mask(1)] = 9채널
+
+                    # 마스크된 latent 생성 (텍스트 영역을 노이즈로 채움)
+                    masked_latents = initial_lantents * (1 - latent_mask_batch)
+
+                    # 마스크를 latent 크기에 맞게 리사이즈
+                    mask_for_unet = F.interpolate(
+                        latent_mask_batch,
+                        size=initial_lantents.shape[-2:],
+                        mode="nearest"
+                    )
+
+                    # 9채널 입력 구성: [latent, masked_latent, mask]
+                    latent_model_input = torch.cat([
+                        initial_lantents,      # 4채널: 현재 latent
+                        masked_latents,        # 4채널: 마스크된 latent
+                        mask_for_unet          # 1채널: 마스크
+                    ], dim=1)  # 총 9채널
+
+                    # CFG를 위해 복제
+                    latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
+                    timesteps_input = torch.cat([timesteps_batch] * 2, dim=0)
 
                     noise_pred = unet_lora(
                         sample=latent_model_input,
@@ -358,8 +378,26 @@ class Model3_pretrained(nn.Module):
 
                 prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)
 
-                # 모델 입력 준비 및 노이즈 예측
-                latent_model_input = torch.cat([initial_latents] * 2, dim=0)
+                # SD2 Inpainting용 9채널 입력 구성 (validation에서도 동일)
+                # 마스크된 latent 생성
+                masked_latents = initial_latents * (1 - latent_mask)
+
+                # 마스크를 latent 크기에 맞게 리사이즈
+                mask_for_unet = F.interpolate(
+                    latent_mask,
+                    size=initial_latents.shape[-2:],
+                    mode="nearest"
+                )
+
+                # 9채널 입력 구성: [latent, masked_latent, mask]
+                latent_model_input = torch.cat([
+                    initial_latents,      # 4채널: 현재 latent
+                    masked_latents,       # 4채널: 마스크된 latent
+                    mask_for_unet         # 1채널: 마스크
+                ], dim=1)  # 총 9채널
+
+                # CFG를 위해 복제
+                latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                 timesteps_input = torch.cat([timesteps] * 2, dim=0)
 
                 noise_pred = unet_lora(
