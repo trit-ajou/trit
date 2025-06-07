@@ -425,14 +425,26 @@ class Model3_pretrained(nn.Module):
             # 서브플롯 4: 통계 정보
             plt.subplot(2, 2, 4)
             plt.axis('off')
+
+            # 통계 값들을 미리 계산
+            final_train = f"{train_losses[-1]:.4f}" if train_losses else "N/A"
+            final_val = f"{val_losses[-1]:.4f}" if val_losses else "N/A"
+            best_val = f"{min(val_losses):.4f}" if val_losses else "N/A"
+            best_epoch = epochs[val_losses.index(min(val_losses))] if val_losses else "N/A"
+
+            if train_losses and len(train_losses) > 1:
+                loss_reduction = f"{((train_losses[0] - train_losses[-1]) / train_losses[0] * 100):.1f}%"
+            else:
+                loss_reduction = "N/A"
+
             stats_text = f"""
 Training Summary:
 • Total Epochs: {len(epochs)}
-• Final Train Loss: {train_losses[-1]:.4f if train_losses else 'N/A'}
-• Final Val Loss: {val_losses[-1]:.4f if val_losses else 'N/A'}
-• Best Val Loss: {min(val_losses):.4f if val_losses else 'N/A'}
-• Best Val Epoch: {epochs[val_losses.index(min(val_losses))] if val_losses else 'N/A'}
-• Loss Reduction: {((train_losses[0] - train_losses[-1]) / train_losses[0] * 100):.1f}% if train_losses and len(train_losses) > 1 else 'N/A'
+• Final Train Loss: {final_train}
+• Final Val Loss: {final_val}
+• Best Val Loss: {best_val}
+• Best Val Epoch: {best_epoch}
+• Loss Reduction: {loss_reduction}
             """
             plt.text(0.1, 0.9, stats_text, transform=plt.gca().transAxes,
                     verticalalignment='top', fontsize=10, fontfamily='monospace',
