@@ -96,7 +96,30 @@ class Model3_pretrained(nn.Module):
         full_train_set = MangaDataset3(texted_images_for_model3)
         
         train_sets, valid_sets = torch.utils.data.random_split(full_train_set, [train_size, val_size])
-        
+
+        # 디버깅: 분할된 데이터셋의 인덱스 확인
+        print(f"\n=== DATASET SPLIT DEBUG ===")
+        print(f"Total images: {len(texted_images_for_model3)}")
+        print(f"Train size: {train_size}, Val size: {val_size}")
+        print(f"Train indices (first 10): {list(train_sets.indices[:10])}")
+        print(f"Val indices (first 10): {list(valid_sets.indices[:10])}")
+
+        # 실제 이미지 식별자 확인
+        print("Train images (first 5):")
+        for i in range(min(5, len(train_sets.indices))):
+            idx = train_sets.indices[i]
+            img = texted_images_for_model3[idx]
+            identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+            print(f"  Train idx[{idx}]: {identifier}")
+
+        print("Val images (first 5):")
+        for i in range(min(5, len(valid_sets.indices))):
+            idx = valid_sets.indices[i]
+            img = texted_images_for_model3[idx]
+            identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+            print(f"  Val idx[{idx}]: {identifier}")
+        print("===========================\n")
+
         train_loader = torch.utils.data.DataLoader(
             train_sets,
             batch_size=batch_size,
@@ -152,8 +175,20 @@ class Model3_pretrained(nn.Module):
         for epoch in tqdm(range(num_epochs), desc="Epochs"):
             unet_lora.train()
             epoch_loss = 0.0
-            
+
+            step = 0
             for batch_images in tqdm(train_loader, desc="Training batches"):
+                # 디버깅: 첫 번째 에포크의 첫 번째 배치에서 파일명 출력
+                if step == 0 and epoch == 0:
+                    print("\n=== TRAINING BATCH DEBUG ===")
+                    print("First training batch images:")
+                    for i, img in enumerate(batch_images):
+                        # TextedImage 객체의 고유 식별자 출력 (가능한 속성들 시도)
+                        identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+                        print(f"  Train[{i}]: {identifier}")
+                    print("=============================\n")
+
+                step += 1
                 # 메모리 정리
                 torch.cuda.empty_cache()
                 
@@ -488,6 +523,16 @@ Training Summary:
         
         with torch.no_grad():
             for batch_images in val_loader:
+                # 디버깅: 첫 번째 검증 배치에서 파일명 출력
+                if num_val_batches == 0:
+                    print("\n=== VALIDATION BATCH DEBUG ===")
+                    print("First validation batch images:")
+                    for i, img in enumerate(batch_images):
+                        # TextedImage 객체의 고유 식별자 출력 (가능한 속성들 시도)
+                        identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+                        print(f"  Val[{i}]: {identifier}")
+                    print("===============================\n")
+
                 torch.cuda.empty_cache()
                 
                 original_pixel_values = torch.stack([img.orig for img in batch_images]).to(device, dtype=torch.float32)
