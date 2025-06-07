@@ -1,7 +1,11 @@
+from peft import LoraConfig
 import torch
+import time
+import os
 from tqdm import tqdm
 from copy import deepcopy  # Changed from copy to deepcopy for TextedImage objects
 from torch.utils.data import DataLoader, random_split
+
 import os  # Added for path joining and directory creation
 import torchvision.transforms.functional as VTF  # Added for visualization
 from PIL import ImageDraw  # Added for visualization
@@ -33,61 +37,63 @@ import cv2
 from torch.autograd import Variable
 from .models.model1_util.model1_train import train_one_epoch_model1
 
-# Collate function for Model1 DataLoader
-def detection_collate_fn(batch):
-    images = []
-    targets_list = []
-    for item in batch:
-        images.append(item[0])  # item[0] is the image tensor
+import torchvision.transforms.functional as VTF
+import os
 
-        # item[1] is the list of BBox tuples from MangaDataset1
-        bboxes_tensor = torch.tensor(
-            [list(bbox) for bbox in item[1]], dtype=torch.float32
-        )
-        num_boxes = bboxes_tensor.shape[0]
-
-        # Ensure that even if there are no boxes, the tensors are correctly shaped.
-        if num_boxes == 0:
-            # Faster R-CNN expects boxes to be [N, 4] and labels [N]
-            # If no boxes, provide empty tensors of the correct shape.
-            bboxes_tensor = torch.zeros((0, 4), dtype=torch.float32)
-            labels_tensor = torch.zeros((0,), dtype=torch.int64)
-        else:
-            labels_tensor = torch.ones(
-                (num_boxes,), dtype=torch.int64
-            )  # All are 'text' class (id 1)
-
-        targets_list.append({"boxes": bboxes_tensor, "labels": labels_tensor})
-
-    return images, targets_list
+from .datas.ImageLoader import ImageLoader
+from .datas.TextedImage import TextedImage
+from .datas.Dataset import MangaDataset1
+from .models.Utils import ModelMode
+from .models.Model1 import Model1
+from .models.Model3 import Model3
+from .models.Model3_pretrained import Model3_pretrained
+from .Utils import PipelineSetting, ImagePolicy
 
 
 class PipelineMgr:
     def __init__(self, setting: PipelineSetting, policy: ImagePolicy):
         self.setting = setting
         self.imageloader = ImageLoader(setting, policy)
-        # Ensure output_img_dir and ckpt_dir exist
-        os.makedirs(self.setting.output_img_dir, exist_ok=True)
-        os.makedirs(self.setting.ckpt_dir, exist_ok=True)
-
         self.texted_images = None
+		os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+        os.makedirs(self.setting.font_dir, exist_ok=True)
+        os.makedirs(self.setting.clear_img_dir, exist_ok=True)
+        os.makedirs(self.setting.output_img_dir, exist_ok=True)
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################
-        if self.setting.model1_mode == ModelMode.TRAIN: # 모델1 학습 시에만 GT 생성
-            should_generate_craft_gt_for_step1 = True
-        else: # 추론 또는 다른 모델 사용 시에는 GT 생성 안 함 (기존 동작)
-            should_generate_craft_gt_for_step1 = False
+        print("[Pipeline] Loading Images")
+#         # 이미지로더 사용 방법 예시(NEW)
+#         self.imageloader.start_loading_async(
+#             num_images=self.setting.num_images,
+#             dir=self.setting.clear_img_dir,
+#             max_text_size=self.setting.model3_input_size,
+#         )
+#         # 할일 하기
+#         time.sleep(5)
+#         # 로딩된 이미지 불러오기(덜끝났으면 끝날 때까지 대기)
+#         self.texted_images = self.imageloader.get_loaded_images()
+#         # 프로그램 종료 시
+#         self.imageloader.shutdown()
 
         if self.setting.timg_generation == TimgGeneration.generate_only:
             print("[Pipeline] Generating TextedImages")
-            self.texted_images = self.imageloader.load_images(
-                self.setting.num_images, self.setting.clear_img_dir, should_generate_craft_gt_for_step1)
-
+#             self.texted_images = self.imageloader.load_images(
+#                 self.setting.num_images, self.setting.clear_img_dir, self.setting.model3_input_size)
+			self.imageloader.start_loading_async(
+						num_images=self.setting.num_images,
+						dir=self.setting.clear_img_dir,
+						max_text_size=self.setting.model3_input_size,
+					)
+			self.texted_images = self.imageloader.get_loaded_images()
         elif self.setting.timg_generation == TimgGeneration.generate_save:
-            print("[Pipeline] Generating TextedImages and Save", should_generate_craft_gt_for_step1)
-            self.texted_images = self.imageloader.load_images(
-                self.setting.num_images, self.setting.clear_img_dir)
+            print("[Pipeline] Generating TextedImages and Save", self.setting.model3_input_size)
+			self.imageloader.start_loading_async(
+						num_images=self.setting.num_images,
+						dir=self.setting.clear_img_dir,
+						max_text_size=self.setting.model3_input_size,
+					)
+			self.texted_images = self.imageloader.get_loaded_images()
             save_timgs(self.texted_images, self.setting.texted_img_dir)
             num_viz_samples = getattr(self.setting, 'num_gt_viz_samples', 3)  # 설정 또는 기본값
             num_viz_samples = min(num_viz_samples, len(self.texted_images))
@@ -113,15 +119,17 @@ class PipelineMgr:
 
 
         ################################################### Step 2: BBox Merge ###############################################
-        # print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
-        # for texted_image in self.texted_images:
-        #     texted_image.merge_bboxes_with_margin(self.setting.margin)
-        if hasattr(self.texted_images[0], 'merge_bboxes_with_margin') and callable(getattr(self.texted_images[0], 'merge_bboxes_with_margin')):
-            print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
-            for texted_image in self.texted_images:
-                texted_image.merge_bboxes_with_margin(self.setting.margin)
-        else:
-            print("[Pipeline] Skipping BBox Merge (method not found in TextedImage)")
+        print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
+        for texted_image in self.texted_images:
+            texted_image.merge_bboxes_with_margin(self.setting.margin)
+
+        # Might need to change device to GPU
+        self.setting.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        print(f"[Pipeline] Using Device: {self.setting.device}")
+
+
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
             # This list is already created by the existing code structure if we assume
@@ -486,242 +494,175 @@ class PipelineMgr:
             )
             pass  # Placeholder, can be removed if no other common logic is needed.
 
+
+        # for i, texted_image in enumerate(self.texted_images):
+        #     texted_image.visualize(dir="trit/datas/images/output", filename=f"before_model3_images{i}.png")
+
         ################################################### Step 7: Model 3 ##################################################
         if self.setting.model3_mode != ModelMode.SKIP:
+
+            model_config = {
+                    "model_id" : "stabilityai/stable-diffusion-3.5-medium",
+                    "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                    "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                    "lora_path" : self.setting.lora_weight_path,
+                    "epochs": self.setting.epochs,
+                    "batch_size": self.setting.batch_size,
+                    "inference_steps" : 10, # 기본값 : 10
+                    "input_size": self.setting.model3_input_size,
+                    "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
+                    "guidance_scale": 7.5, #  기본값 : 7.5
+                    "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
+                    "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
+                    "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
+                    "mask_weight": self.setting.mask_weight
+                    }
+            
+            model_pretrained_config = {
+                "model_id" : "stabilityai/stable-diffusion-2-inpainting",
+                "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
+                "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                "lora_path" : self.setting.lora_weight_path,
+                "epochs": self.setting.epochs,
+                "batch_size": self.setting.batch_size,
+                "guidance_scale": 7.5, #  기본값 : 7.5
+                "inference_steps" : 28, # 기본값 : 28
+                "input_size": self.setting.model3_input_size,
+                "lora_rank": self.setting.lora_rank, # LoRA rank 값
+                "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값
+                "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
+                "mask_weight": self.setting.mask_weight
+                }
+            
             if self.setting.model3_mode == ModelMode.TRAIN:
-                # Create flat list of crops for Model3 training
-                texted_images_for_model3_train = [
+
+                # 학습시에만 사용용
+                texted_images_for_model3 = [
+                _splitted
+                for texted_image in self.texted_images
+                for _splitted in texted_image.split_center_crop(
+                    self.setting.model3_input_size
+                )]
+                
+                print("[Pipeline] Training Model 3")
+                model3 = Model3(model_config)
+                print("[Pipeline] Calling model3.lora_train...")
+                model3.lora_train(texted_images_for_model3)
+
+
+            elif self.setting.model3_mode == ModelMode.INFERENCE:
+
+                print("[Pipeline] Running Model 3 Inference")
+
+                model3 = Model3(model_config)
+
+                # 각 원본 이미지에 대해 center crop으로 패치 생성
+                texted_images_for_model3 = [
                     _splitted
-                    for texted_image in self.texted_images  # Use potentially updated self.texted_images
+                    for texted_image in self.texted_images
                     for _splitted in texted_image.split_center_crop(
                         self.setting.model3_input_size
                     )
                 ]
-                print("[Pipeline] Training Model 3")
-                if not hasattr(self.setting, "model3_input_size"):
-                    print(
-                        "[Pipeline] CRITICAL WARNING: self.setting.model3_input_size is not defined. This is essential for Model3 data preparation. Training may fail or be incorrect."
-                    )
+                
+                # 출력 디렉토리 생성
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
 
-                if not texted_images_for_model3_train:  # Check the correct list
-                    print(
-                        "[Pipeline] No crops generated for Model 3 training (texted_images_for_model3_train is empty). Skipping Model 3 training."
-                    )
-                else:
-                    model3 = Model3(
-                        img_channels=3,
-                        mask_channels=1,
-                        output_channels=3,
-                        device=self.setting.device,
-                    )
-                    # Use the training-specific list
-                    train_dataset = MangaDataset3(
-                        texted_images_for_model3_train,
-                        self.setting.model2_input_size,
-                    )
-                    train_loader = DataLoader(
-                        train_dataset,
-                        batch_size=self.setting.batch_size,
-                        shuffle=True,
-                        num_workers=self.setting.num_workers,
-                    )
-                    optimizer = torch.optim.Adam(
-                        model3.parameters(), lr=self.setting.lr
-                    )
-                    criterion = torch.nn.L1Loss()
-                    model3_ckpt_path = os.path.join(self.setting.ckpt_dir, "model3.pth")
-                    start_epoch = model3.load_checkpoint(model3_ckpt_path, optimizer)
+                for i, texted_image in enumerate(texted_images_for_model3):
+                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
+                
+                # 패치들을 인페인팅
+                inpainted_patches = model3.inference(texted_images_for_model3)
 
-                    print(
-                        f"[Pipeline] Starting Model 3 training from epoch {start_epoch}"
-                    )
-                    for epoch in range(start_epoch, self.setting.epochs):
-                        model3.train()
-                        epoch_loss = 0.0
-                        batch_iterator = tqdm(
-                            train_loader,
-                            desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model3 Train",
-                            leave=False,
-                        )
-                        for input_dict, target_original_images in batch_iterator:
-                            images_with_text = input_dict["image_with_text"].to(
-                                self.setting.device
-                            )
-                            masks = input_dict["mask"].to(self.setting.device)
-                            target_original_images = target_original_images.to(
-                                self.setting.device
-                            )
-                            pred_inpainted_images = model3(images_with_text, masks)
-                            loss = criterion(
-                                pred_inpainted_images, target_original_images
-                            )
-                            optimizer.zero_grad()
-                            loss.backward()
-                            optimizer.step()
-                            epoch_loss += loss.item()
-                            batch_iterator.set_postfix(loss=f"{loss.item():.4f}")
-                        avg_epoch_loss = epoch_loss / len(train_loader)
-                        print(
-                            f"[Pipeline] Epoch {epoch+1}/{self.setting.epochs} - Model 3 Average Training Loss: {avg_epoch_loss:.4f}"
-                        )
+                # # 인페인팅된 패치들을 원본 이미지에 다시 합성
+                # # 패치들을 원본 이미지별로 그룹화하여 합성
+                patch_idx = 0
+                for texted_image in self.texted_images:
+                    # 현재 이미지의 bbox 개수만큼 패치 가져오기
+                    num_bboxes = len(texted_image.bboxes)
+                    current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
 
-                        if (epoch + 1) % self.setting.ckpt_interval == 0:
-                            model3.save_checkpoint(
-                                model3_ckpt_path, epoch, optimizer.state_dict()
-                            )
+                    # 패치들을 원본 이미지에 합성
+                    texted_image.merge_cropped(current_patches)
 
-                        # Use the training-specific list for visualization sample
-                        if (epoch + 1) % self.setting.vis_interval == 0 and len(
-                            texted_images_for_model3_train
-                        ) > 0:
-                            print(
-                                f"[Pipeline] Visualizing Model 3 output for epoch {epoch+1}"
-                            )
-                            model3.eval()
-                            vis_sample_crop = texted_images_for_model3_train[0]
-                            vis_img_texted = vis_sample_crop.timg.unsqueeze(0).to(
-                                self.setting.device
-                            )
-                            vis_mask = vis_sample_crop.mask.unsqueeze(0).to(
-                                self.setting.device
-                            )
-                            vis_gt_orig_crop = vis_sample_crop.orig.cpu()
-                            with torch.no_grad():
-                                pred_inpainted_vis = (
-                                    model3(vis_img_texted, vis_mask).squeeze(0).cpu()
-                                )
-                            plt.figure(figsize=(20, 5))
-                            plt.subplot(1, 4, 1)
-                            plt.imshow(VTF.to_pil_image(vis_sample_crop.timg.cpu()))
-                            plt.title(f"Input Texted (Epoch {epoch+1})")
-                            plt.axis("off")
-                            plt.subplot(1, 4, 2)
-                            plt.imshow(
-                                VTF.to_pil_image(
-                                    vis_sample_crop.mask.cpu().squeeze(0), mode="L"
-                                ),
-                                cmap="gray",
-                            )
-                            plt.title("Input Mask")
-                            plt.axis("off")
-                            plt.subplot(1, 4, 3)
-                            plt.imshow(VTF.to_pil_image(pred_inpainted_vis))
-                            plt.title("Predicted Inpainted")
-                            plt.axis("off")
-                            plt.subplot(1, 4, 4)
-                            plt.imshow(VTF.to_pil_image(vis_gt_orig_crop))
-                            plt.title("Ground Truth Original")
-                            plt.axis("off")
-                            vis_output_filename = f"model3_train_viz.png"
-                            plt.savefig(
-                                os.path.join(
-                                    self.setting.output_img_dir, vis_output_filename
-                                )
-                            )
-                            plt.close()
-                            print(
-                                f"[Pipeline] Saved Model 3 training visualization to {os.path.join(self.setting.output_img_dir, vis_output_filename)}"
-                            )
-                            model3.train()
+                    patch_idx += num_bboxes
 
-            elif self.setting.model3_mode == ModelMode.INFERENCE:
-                print("[Pipeline] Running Model 3 Inference")
-                model3 = Model3(
-                    img_channels=3,
-                    mask_channels=1,
-                    output_channels=3,
-                    device=self.setting.device,
-                )
-                model3_ckpt_path = os.path.join(self.setting.ckpt_dir, "model3.pth")
-                model3.load_checkpoint(
-                    model3_ckpt_path
-                )  # Optimizer not needed for inference
-                model3.eval()
+                # 결과 이미지 저장
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+                for i, texted_image in enumerate(self.texted_images):
+                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
 
-                print(
-                    f"[Pipeline] Applying Model 3 (Inpainting) to {len(self.texted_images)} images..."
-                )
-                for original_idx, original_texted_image in enumerate(
-                    tqdm(self.texted_images, desc="Model3 Inference on original images")
-                ):
-                    # 1. Split into crops using center_crop
-                    list_of_crops = original_texted_image.split_center_crop(
+                print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
+
+            # 사전 훈련 모델 훈련
+            elif self.setting.model3_mode == ModelMode.PRETRAINED_TRAIN:
+
+                # 학습시에만 사용
+                texted_images_for_model3 = [
+                _splitted
+                for texted_image in self.texted_images
+                for _splitted in texted_image.split_center_crop(
+                    self.setting.model3_input_size
+                )]
+
+                print("[Pipeline] Training Model 3 Pretrained")
+                model3 = Model3_pretrained(model_pretrained_config)
+                print("[Pipeline] Calling model3_pretrained.lora_train...")
+                model3.lora_train(texted_images_for_model3)
+
+            # 사전 훈련 모델 사용
+            elif self.setting.model3_mode == ModelMode.PRETRAINED:
+                                
+                print("[Pipeline] Running Model 3 Pretrained Inference")
+                model3 = Model3_pretrained(model_pretrained_config)    
+
+                # 각 원본 이미지에 대해 center crop으로 패치 생성
+                texted_images_for_model3 = [
+                    _splitted
+                    for texted_image in self.texted_images
+                    for _splitted in texted_image.split_center_crop(
                         self.setting.model3_input_size
                     )
+                ]
 
-                    if not list_of_crops:
-                        # print(f"[Pipeline] No crops for image {original_idx} for Model 3.") # Reduce verbosity
-                        continue
+                # 출력 디렉토리 생성
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
 
-                    processed_crops_for_this_original = []
-                    for (
-                        crop_texted_image
-                    ) in list_of_crops:  # crop_idx removed as not used
-                        crop_img_w_text = crop_texted_image.timg
-                        crop_mask = crop_texted_image.mask
+                for i, texted_image in enumerate(texted_images_for_model3):
+                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
+                
+                # 패치들을 인페인팅
+                inpainted_patches = model3.inference(texted_images_for_model3)
 
-                        with torch.no_grad():
-                            # Model3.forward handles device movement for its inputs.
-                            # Ensure inputs have batch dimension.
-                            pred_inpainted_tensor = model3(
-                                crop_img_w_text.unsqueeze(0), crop_mask.unsqueeze(0)
-                            )
+                # # 인페인팅된 패치들을 원본 이미지에 다시 합성
+                # # 패치들을 원본 이미지별로 그룹화하여 합성
+                patch_idx = 0
+                for texted_image in self.texted_images:
+                    # 현재 이미지의 bbox 개수만큼 패치 가져오기
+                    num_bboxes = len(texted_image.bboxes)
+                    current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
 
-                        # Update the 'orig' attribute, ensuring it's on CPU.
-                        crop_texted_image.orig = pred_inpainted_tensor.squeeze(0).cpu()
-                        processed_crops_for_this_original.append(crop_texted_image)
+                    # 패치들을 원본 이미지에 합성
+                    texted_image.merge_cropped(current_patches)
 
-                    original_texted_image.merge_cropped(
-                        processed_crops_for_this_original
-                    )
+                    patch_idx += num_bboxes
 
-                print(
-                    "[Pipeline] Model 3 Inference complete. 'orig' attributes in self.texted_images updated."
-                )
+                # 결과 이미지 저장
+                output_dir = "trit/datas/images/output"
+                os.makedirs(output_dir, exist_ok=True)
+                for i, texted_image in enumerate(self.texted_images):
+                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
 
-                num_viz_samples = min(3, len(self.texted_images))
-                if num_viz_samples > 0:
-                    print(
-                        f"[Pipeline] Visualizing first {num_viz_samples} Model 3 inference results (inpainted)..."
-                    )
-                for i in range(num_viz_samples):
-                    img_to_viz = self.texted_images[i]
+                print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
 
-                    plt.figure(figsize=(15, 5))
-                    plt.subplot(1, 3, 1)
-                    plt.imshow(VTF.to_pil_image(img_to_viz.timg.cpu()))
-                    plt.title(f"Input Texted (Sample {i})")
-                    plt.axis("off")
-
-                    plt.subplot(1, 3, 2)
-                    plt.imshow(
-                        VTF.to_pil_image(img_to_viz.mask.cpu().squeeze(0), mode="L"),
-                        cmap="gray",
-                    )
-                    plt.title("Input Mask (from M2)")
-                    plt.axis("off")
-
-                    plt.subplot(1, 3, 3)
-                    plt.imshow(
-                        VTF.to_pil_image(img_to_viz.orig.cpu())
-                    )  # Inpainted result is in .orig
-                    plt.title("Output Inpainted (M3)")
-                    plt.axis("off")
-
-                    viz_filename = f"model3_inference_viz_sample{i}.png"
-                    plt.savefig(os.path.join(self.setting.output_img_dir, viz_filename))
-                    plt.close()
-                    print(
-                        f"Saved Model 3 inference visualization to {os.path.join(self.setting.output_img_dir, viz_filename)}"
-                    )
         else:
             print("[Pipeline] Skipping Model 3")
 
         ################################################### Step 8: Model 3 output apply #####################################
-        # This step is now effectively handled within the INFERENCE block for Model3,
-        # where original_texted_image.merge_cropped() is called and updates original_texted_image.orig.
-        if self.setting.model3_mode == ModelMode.INFERENCE:
-            print(
-                "[Pipeline] Model 3 output (inpainted images) has been applied to self.texted_images' 'orig' attribute."
-            )
+
+        if self.setting.model3_mode == ModelMode.INFERENCE or self.setting.model3_mode == ModelMode.PRETRAINED:
             pass
+

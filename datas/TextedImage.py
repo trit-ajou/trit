@@ -1,8 +1,11 @@
 import os
+import pickle
 import torch
-import torchvision.transforms.functional as TF
+import torchvision.transforms.functional as VTF
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+from torch import Tensor as img_tensor
 from PIL import Image, ImageDraw
 from torch import Tensor as img_tensor
 from typing import List, Optional, Tuple
@@ -115,9 +118,9 @@ class TextedImage:
         """각 바운딩 박스를 지정된 여백만큼 확장하여 여러 개의 TextedImage 객체로 분리합니다."""
         texted_images: list[TextedImage] = []
         for bbox in self.bboxes:
-            orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin)
-            timg, _ = TextedImage._margin_crop(self.timg, bbox, margin)
-            mask, _ = TextedImage._margin_crop(self.mask, bbox, margin)
+            orig, _bbox = TextedImage._margin_crop(self.orig, bbox, margin, fill=1.0)
+            timg, _ = TextedImage._margin_crop(self.timg, bbox, margin, fill=1.0)
+            mask, _ = TextedImage._margin_crop(self.mask, bbox, margin, fill=0.0)
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 
@@ -138,29 +141,49 @@ class TextedImage:
             texted_images.append(TextedImage(orig, timg, mask, [_bbox]))
         return texted_images
 
-    def merge_cropped(self, cropped_texted_images: List["TextedImage"]):
-        """분리되었던 크롭된 TextedImage들을 다시 원본 이미지에 병합합니다."""
-        for bbox, cropped_texted_image in zip(self.bboxes, cropped_texted_images):
+    def merge_cropped(self, cropped_texted_images: list["TextedImage"]):
+        for i, (bbox, cropped_texted_image) in enumerate(zip(self.bboxes, cropped_texted_images)):
+            print(f"DEBUG merge_cropped: Processing bbox {i}")
+            print(f"DEBUG merge_cropped: bbox = {bbox} (height={bbox.height}, width={bbox.width})")
+
             _bbox = cropped_texted_image.bboxes[0]
-            cropped_orig = cropped_texted_image.orig[_bbox.slice]
-            cropped_timg = cropped_texted_image.timg[_bbox.slice]
-            cropped_mask = cropped_texted_image.mask[_bbox.slice]
+            print(f"DEBUG merge_cropped: _bbox = {_bbox}")
+            print(f"DEBUG merge_cropped: cropped_texted_image.orig.shape before slice = {cropped_texted_image.orig.shape}")
 
-            resized_orig = TF.resize(cropped_orig, (bbox.height, bbox.width))
-            resized_timg = TF.resize(cropped_timg, (bbox.height, bbox.width))
-            resized_mask = TF.resize(cropped_mask, (bbox.height, bbox.width))
+            cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
+            cropped_texted_image.timg = cropped_texted_image.timg[_bbox.slice]
+            cropped_texted_image.mask = cropped_texted_image.mask[_bbox.slice]
 
-            self.orig[bbox.slice] = resized_orig
-            self.timg[bbox.slice] = resized_timg
-            self.mask[bbox.slice] = resized_mask
+            print(f"DEBUG merge_cropped: cropped_texted_image.orig.shape after slice = {cropped_texted_image.orig.shape}")
+            print(f"DEBUG merge_cropped: About to call _resize with size = ({bbox.height}, {bbox.width})")
+
+            cropped_texted_image._resize((bbox.height, bbox.width))
+            self.orig[bbox.slice] = cropped_texted_image.orig
+            self.timg[bbox.slice] = cropped_texted_image.timg
+            self.mask[bbox.slice] = cropped_texted_image.mask
 
     def _resize(self, size: tuple[int, int]):
         """객체 자신을 지정된 크기로 리사이즈하고 패딩합니다. (인플레이스 연산)"""
         _, H, W = self.orig.shape
         TARGET_H, TARGET_W = size
 
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: orig.shape={self.orig.shape}, H={H}, W={W}")
+        print(f"DEBUG _resize: target size={size}, TARGET_H={TARGET_H}, TARGET_W={TARGET_W}")
+
+        # Calculate aspect ratios
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Height is zero: H={H}, orig.shape={self.orig.shape}")
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Width is zero: W={W}, orig.shape={self.orig.shape}")
+
         original_aspect = W / H
         target_aspect = TARGET_W / TARGET_H
+        print(f"DEBUG _resize: original_aspect={original_aspect}, target_aspect={target_aspect}")
+
+        # Resize
         if original_aspect > target_aspect:
             new_w = TARGET_W
             new_h = int(TARGET_W / original_aspect)
@@ -168,21 +191,44 @@ class TextedImage:
             new_h = TARGET_H
             new_w = int(TARGET_H * original_aspect)
 
-        self.orig = TF.resize(self.orig, (new_h, new_w))
-        self.timg = TF.resize(self.timg, (new_h, new_w))
-        self.mask = TF.resize(self.mask, (new_h, new_w))
+        print(f"DEBUG _resize: new_h={new_h}, new_w={new_w}")
+
+        self.orig = VTF.resize(self.orig, (new_h, new_w))
+        self.timg = VTF.resize(self.timg, (new_h, new_w))
+        self.mask = VTF.resize(self.mask, (new_h, new_w))
+        # pad
 
         pad_left = (TARGET_W - new_w) // 2
         pad_right = TARGET_W - new_w - pad_left
         pad_top = (TARGET_H - new_h) // 2
         pad_bottom = TARGET_H - new_h - pad_top
-        padding = (pad_left, pad_top, pad_right, pad_bottom)
 
-        self.orig = TF.pad(self.orig, padding)
-        self.timg = TF.pad(self.timg, padding)
-        self.mask = TF.pad(self.mask, padding)
+        self.orig = VTF.pad(
+            self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1
+        )
+        self.timg = VTF.pad(
+            self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1
+        )
+        self.mask = VTF.pad(
+            self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0
+        )
+        # resize bboxes
+        new_bboxes: list[BBox] = []
 
-        new_bboxes: List[BBox] = []
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: About to calculate scale_w = new_w / W = {new_w} / {W}")
+        print(f"DEBUG _resize: About to calculate scale_h = new_h / H = {new_h} / {H}")
+
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate scale_w")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_w={new_w}, W={W}")
+            raise ValueError(f"Width is zero when calculating scale_w: W={W}")
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate scale_h")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_h={new_h}, H={H}")
+            raise ValueError(f"Height is zero when calculating scale_h: H={H}")
+
+
         scale_w = new_w / W
         scale_h = new_h / H
         for bbox in self.bboxes:
@@ -204,8 +250,8 @@ class TextedImage:
         return output_image
 
     @staticmethod
-    def _margin_crop(img: img_tensor, bbox: BBox, margin: int) -> Tuple[img_tensor, BBox]:
-        """BBox를 margin만큼 확장하여 이미지를 크롭하고, 패딩을 추가하여 원래 크기를 유지합니다."""
+
+    def _margin_crop(img: img_tensor, bbox: BBox, margin: int, fill: float = 0.0):
         _, H, W = img.shape
         expanded_bbox = bbox._unsafe_expand(margin)
         crop_bbox = bbox._safe_expand(margin, (H, W))
@@ -215,11 +261,11 @@ class TextedImage:
         pad_right = max(0, expanded_bbox.x2 - W)
         pad_bottom = max(0, expanded_bbox.y2 - H)
 
-        cropped_img = img[crop_bbox.slice]
-        padded_img = TF.pad(cropped_img, (pad_left, pad_top, pad_right, pad_bottom))
+        # Apply padding if needed
+        img = img[crop_bbox.slice]
+        img = VTF.pad(img, (pad_left, pad_top, pad_right, pad_bottom), fill=fill)
+        return img, bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
 
-        new_bbox = bbox.coord_trans(expanded_bbox.x1, expanded_bbox.y1)
-        return padded_img, new_bbox
 
     @staticmethod
     def _center_crop(img: img_tensor, bbox: BBox, size: tuple[int, int]) -> Tuple[img_tensor, BBox]:
@@ -235,19 +281,36 @@ class TextedImage:
         crop_y1 = max(0, min(crop_y1, H - output_h))
 
         slice_bbox = BBox(crop_x1, crop_y1, crop_x1 + output_w, crop_y1 + output_h)
-        new_bbox = bbox.coord_trans(crop_x1, crop_y1)
 
-        return img[slice_bbox.slice], new_bbox
+        _bbox = bbox.coord_trans(crop_x1, crop_y1)
+        return img[slice_bbox.slice], _bbox
 
-    def _to_pil(self) -> Tuple[Image.Image, Image.Image, Image.Image]:
-        """디버깅 및 시각화를 위해 텐서를 PIL 이미지로 변환합니다."""
-        orig = TF.to_pil_image(self.orig.cpu())
-        timg = TF.to_pil_image(self.timg.cpu())
-        mask = TF.to_pil_image(self.mask.cpu())
+    def save(self, dir=".", filename="test.png"):
+        os.makedirs(dir, exist_ok=True)
+        with open(dir + "/" + filename, "wb") as f:
+            pickle.dump(self, f)
+
+    @staticmethod
+    def load(dir=".", filename="test.png"):
+        loc = dir + "/" + filename
+        if not os.path.exists(loc):
+            raise KeyError("[TextedImage] 파일을 못찾겠다 인간.")
+        with open(loc, "rb") as f:
+            texted_image = pickle.load(f)
+        return texted_image
+
+    def _to_pil(self):
+        orig = self.orig.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
+        timg = self.timg.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
+        mask = self.mask.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
+        orig = Image.fromarray(orig, "RGB")
+        timg = Image.fromarray(timg, "RGB")
+        mask = Image.fromarray(mask.squeeze(), "L")
         return orig, timg, mask
 
     def visualize(self, dir=".", filename="test.png"):
-        """객체의 상태(원본, 텍스트 합성본, 마스크, 바운딩 박스)를 이미지 파일로 저장합니다."""
+        # 출력 디렉토리가 없으면 생성
+        os.makedirs(dir, exist_ok=True)
         orig, timg, mask = self._to_pil()
         draw = ImageDraw.Draw(timg)
         for bbox in self.bboxes:
@@ -265,7 +328,6 @@ class TextedImage:
         axes[2].axis("off")
 
         plt.tight_layout()
-        save_path = os.path.join(dir, filename)
         os.makedirs(dir, exist_ok=True)
-        plt.savefig(save_path)
-        plt.close(fig)
+        plt.savefig(dir + "/" + filename)
+        plt.close()

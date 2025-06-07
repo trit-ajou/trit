@@ -33,12 +33,16 @@ class BBox(tuple):
         x1, y1, x2, y2 = int(round(x1)), int(round(y1)), int(round(x2)), int(round(y2))
         return super().__new__(cls, (x1, y1, x2, y2))
 
+
     def __deepcopy__(self, memo):
         if id(self) in memo:
             return memo[id(self)]
         new_instance = type(self)(*self)
         memo[id(self)] = new_instance
         return new_instance
+    # 피클 가능하도록 추가
+    def __reduce__(self):
+        return (self.__class__, (self.x1, self.y1, self.x2, self.y2))
 
     @property
     def x1(self):
@@ -88,7 +92,7 @@ class BBox(tuple):
         )
 
     def _safe_expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
-        w, h = img_size
+        h, w = img_size
         x1 = max(0, self.x1 - margin)
         y1 = max(0, self.y1 - margin)
         x2 = min(w, self.x2 + margin)

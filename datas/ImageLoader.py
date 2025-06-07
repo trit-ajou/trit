@@ -3,8 +3,11 @@ import random
 import numpy as np
 import torch
 import torchvision.transforms.functional as VTF
+import threading
+import time
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from typing import List, Tuple, Optional, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from .Utils import BBox, Lang, UNICODE_RANGES
@@ -32,9 +35,67 @@ class ImageLoader:
             raise ValueError("[ImageLoader] 폰트를 추가해라 휴먼")
         # font cache 정의: key=(path, size)
         self.font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
+        # 멀티스레딩 관련
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.future = None
+        self.total_tasks = 0
+        self.completed_tasks = 0
+        self.lock = threading.Lock()
+    def start_loading_async(
+        self, num_images: int, dir: str, max_text_size: tuple[int, int]
+    ):
+        if self.future and not self.future.done():
+            raise RuntimeError("[ImageLoader] 이미 진행 중인 로딩 작업이 있습니다.")
+        print("[ImageLoader] 이미지 로딩 작업을 시작합니다.")
+        self.future = self.executor.submit(
+            self.load_images, num_images, dir, max_text_size
+        )
+
+    def get_loaded_images(self) -> List[TextedImage]:
+        if not self.future:
+            raise ValueError("[ImageLoader] 오류: 시작된 로딩 작업이 없습니다.")
+        # 작업이 이미 완료되었다면 바로 결과 반환
+        if self.future.done():
+            try:
+                return self.future.result()
+            except Exception as e:
+                raise ValueError(f"[ImageLoader] 이미지 로딩 중 오류 발생: {e}")
+        # 작업이 진행 중이라면 tqdm 사용하여 대기
+        pbar = None
+        try:
+            while not self.future.done():
+                # pbar 생성
+                if pbar is None:
+                    with self.lock:
+                        if self.total_tasks > 0:
+                            pbar = tqdm(
+                                total=self.total_tasks,
+                                desc="이미지 렌더링 중",
+                                leave=False,
+                            )
+                            pbar.update(self.completed_tasks)
+                            last_completed = self.completed_tasks
+                # pbar 진행률 업데이트
+                if pbar:
+                    current_completed = self.completed_tasks
+                    update_val = current_completed - last_completed
+                    if update_val > 0:
+                        pbar.update(update_val)
+                        last_completed = current_completed
+                time.sleep(1)
+        except Exception as e:
+            raise ValueError(f"[ImageLoader] 이미지 로딩 중 오류 발생: {e}")
+        # 작업 끝
+        if pbar:
+            pbar.close()
+        return self.future.result()
+
+    def shutdown(self):
+        """진행 중인 작업을 멈추고 executer 안전하게 종료."""
+        self.executor.shutdown()
 
     def load_images(
-            self, num_images: int, dir_path: str, generate_craft_gt: bool = True
+            self, num_images: int, dir_path: str,max_text_size: tuple[int, int], generate_craft_gt: bool = True
     ) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
         if not self.setting.use_noise:
@@ -49,91 +110,131 @@ class ImageLoader:
                     print(f"Error loading image {_path}: {e}")
         num_noise_imgs = num_images - len(clear_pils)
         if num_noise_imgs > 0:
-            h_img, w_img = self.setting.model1_input_size
-            noise_arrays = np.random.randint(0, 256, (num_noise_imgs, h_img, w_img, 3), dtype=np.uint8)
-            for noise_array in noise_arrays: clear_pils.append(Image.fromarray(noise_array, "RGB"))
 
-        texted_images_list: List[TextedImage] = []
-        for clear_pil_img in tqdm(clear_pils, leave=False, desc="Generating Texted Images"):
-            # generate_craft_gt 플래그 전달
-            texted_images_list.append(
-                self.pil_to_texted_image(clear_pil_img, generate_craft_gt)
+            h, w = self.setting.model1_input_size
+            noise_imgs = np.random.randint(
+                0, 256, (num_images, h, w, 3), dtype=np.uint8
             )
-        return texted_images_list
-
+            for noise_img in noise_imgs:
+                clear_pils.append(Image.fromarray(noise_img, "RGB"))
+        # 작업 시작 전 총 작업량 초기화
+        with self.lock:
+            self.total_tasks = len(clear_pils)
+            self.completed_tasks = 0
+        # 병렬로 TextedImage 생성
+        print(
+            f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers"
+        )
+        texted_images = []
+        with ThreadPoolExecutor(self.setting.num_workers) as pool:
+            futures = [
+                pool.submit(self.pil_to_texted_image, clear_pil, max_text_size,generate_craft_gt)
+                for clear_pil in clear_pils
+            ]
+            for future in as_completed(futures):
+                texted_images.append(future.result())
+                with self.lock:
+                    self.completed_tasks += 1
+        return texted_images
     def pil_to_texted_image(
-            self, pil_img: Image.Image, generate_craft_gt: bool = False, debug_block:bool = False
-    ) -> TextedImage:
+            self,
+            pil_img: Image.Image,
+            max_text_size: tuple[int, int],
+            generate_craft_gt: bool = True,
+            debug_block: bool = False
+    ) -> 'TextedImage':
+        """
+        단일 PIL 이미지에 텍스트를 합성하고, 필요시 CRAFT용 GT 데이터를 생성하여
+        하나의 TextedImage 객체로 반환합니다.
+
+        Args:
+            pil_img (Image.Image): 텍스트를 합성할 원본 PIL 이미지.
+            generate_craft_gt (bool): CRAFT 학습을 위한 GT 데이터(스코어맵 등) 생성 여부.
+            debug_block (bool): True일 경우, 각 텍스트 블록의 렌더링 과정을 디버그 이미지로 저장.
+
+        Returns:
+            TextedImage: 모든 정보가 포함된 TextedImage 객체.
+        """
+        # --- 1. 초기 텐서 및 변수 준비 ---
         img_w, img_h = pil_img.size
-        # orig_tensor = VTF.to_tensor(pil_img.convert("RGB")).to(self.setting.device)
-        # timg_tensor = orig_tensor.clone()
-        # text_block_pixel_mask = torch.zeros((1, img_h, img_w), device=self.setting.device)
-        orig_tensor = VTF.to_tensor(pil_img.convert("RGB"))  # .to(self.setting.device) 제거
+
+        # 원본, 텍스트 합성본, 마스크 텐서를 CPU에 생성
+        orig_tensor = VTF.to_tensor(pil_img.convert("RGB"))
         timg_tensor = orig_tensor.clone()
-        text_block_pixel_mask = torch.zeros((1, img_h, img_w))  # .to(self.setting.device) 제거
+        text_block_pixel_mask = torch.zeros((1, img_h, img_w))
+
+        # 텍스트 블록 단위의 바운딩 박스 리스트
         word_level_bboxes_list: List[BBox] = []
 
-        # CRAFT GT 생성을 위한 변수 초기화
-        all_char_infos_for_craft: Optional[List[CharInfo]] = None
+        # CRAFT GT 데이터 생성을 위한 변수
+        all_char_infos_for_craft: Optional[List[CharInfo]] = [] if generate_craft_gt else None
         region_score_map_tensor: Optional[torch.Tensor] = None
         affinity_score_map_tensor: Optional[torch.Tensor] = None
 
-        if generate_craft_gt:
-            all_char_infos_for_craft = []
-
-        num_render_texts = random.randint(*self.policy.num_texts)
+        # 텍스트 블록(단어) ID를 고유하게 관리하기 위한 변수
         current_text_block_id_base = 0
 
+        # --- 2. 텍스트 블록 생성 및 합성 루프 ---
+        num_render_texts = random.randint(*self.policy.num_texts)
         for i_block in range(num_render_texts):
-            # 1. 텍스트 덩어리 생성 및 렌더링 준비 (기존 로직과 거의 동일)
+
+            # 2-1. 텍스트 스타일 및 내용 랜덤 생성
             is_sfx = random.random() < self.policy.sfx_style_prob
             font_size_r = random.uniform(*self.policy.font_size_ratio_to_image_height_range)
-            if is_sfx: font_size_r = random.uniform(self.policy.font_size_ratio_to_image_height_range[1], min(0.3,
-                                                                                                              self.policy.font_size_ratio_to_image_height_range[
-                                                                                                                  1] * 2.5))
+            if is_sfx:
+                font_size_r = random.uniform(
+                    self.policy.font_size_ratio_to_image_height_range[1],
+                    min(0.3, self.policy.font_size_ratio_to_image_height_range[1] * 2.5)
+                )
             font_size_val = max(12, int(img_h * font_size_r))
             font_obj = self._get_random_font(font_size_val)
             if not font_obj: continue
+
             text_str_content = self._get_random_text_content()
+            if not text_str_content: continue
+
             wrapped_text_str_multiline = text_str_content
             if random.random() < self.policy.multiline_prob:
                 max_textbox_w_px = int(img_w * random.uniform(*self.policy.textbox_width_ratio_to_image_width_range))
-                wrapped_text_str_multiline = self._wrap_text_pil(text_str_content, font_obj, max_textbox_w_px)
+                wrapped_text_str_multiline = self._wrap_text_pil(text_str_content, font_obj, max(1, max_textbox_w_px))
 
-            # 2. 수정된 함수 호출 (이 함수는 아래에 새로 정의/수정됨)
-            rendered_text_block_pil, char_infos_relative_to_block_pil = \
-                self._render_text_block_and_get_char_infos(  # 함수 이름 변경 및 역할 확장
-                    wrapped_text_str_multiline, font_obj, is_sfx,f"block_{i_block}_{random.randint(1000,9999) if debug_block else None}"
-                )
-
+            # 2-2. 텍스트 블록 렌더링 및 문자 정보 추출
+            debug_prefix = f"block_{i_block}_{random.randint(1000, 9999)}" if debug_block else None
+            rendered_text_block_pil, char_infos_relative_to_block_pil = self._render_text_block_and_get_char_infos(
+                wrapped_text_str_multiline,
+                font_obj,
+                is_sfx,
+                debug_visualization_prefix=debug_prefix
+            )
             if rendered_text_block_pil is None: continue
 
-            # 3. 렌더링된 텍스트 덩어리 PIL 이미지 합성 (기존 로직과 거의 동일)
+            # 2-3. 렌더링된 블록을 이미지에 합성
             text_pil_w, text_pil_h = rendered_text_block_pil.size
-            max_abs_x = img_w - text_pil_w;
-            max_abs_y = img_h - text_pil_h
-            if max_abs_x < 0 or max_abs_y < 0: continue
-            abs_x_on_img = random.randint(0, max_abs_x);
-            abs_y_on_img = random.randint(0, max_abs_y)
-            current_text_block_bbox = BBox(abs_x_on_img, abs_y_on_img,
-                                           abs_x_on_img + text_pil_w, abs_y_on_img + text_pil_h)
+            if img_w < text_pil_w or img_h < text_pil_h: raise ValueError("[ImageLoader] 텍스트가 이미지 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            # 텍스트가 max_text_size보다 크면 (이 부분도 클리핑으로 처리되므로 필요 없음)
+            if text_pil_w > max_text_size[0] or text_pil_h > max_text_size[1]:
+                raise ValueError("[ImageLoader] 텍스트가 최대 크기를 초과했습니다. policy를 조절하십시오 인간.")
+            abs_x_on_img = random.randint(0, img_w - text_pil_w)
+            abs_y_on_img = random.randint(0, img_h - text_pil_h)
+            current_text_block_bbox = BBox(abs_x_on_img, abs_y_on_img, abs_x_on_img + text_pil_w,
+                                           abs_y_on_img + text_pil_h)
             word_level_bboxes_list.append(current_text_block_bbox)
 
-            rgba_pil_tensor = VTF.to_tensor(rendered_text_block_pil) #.to(self.setting.device)
-            rgb_pil_tensor = rgba_pil_tensor[:3, :, :];
+            rgba_pil_tensor = VTF.to_tensor(rendered_text_block_pil)
+            rgb_pil_tensor = rgba_pil_tensor[:3, :, :]
             alpha_pil_tensor = rgba_pil_tensor[3:4, :, :]
-            # TextedImage._alpha_blend 호출은 기존과 동일하다고 가정 (내부 로직은 이전 답변 참고)
+
             timg_tensor = TextedImage._alpha_blend(timg_tensor, current_text_block_bbox, rgb_pil_tensor,
                                                    alpha_pil_tensor)
+
             current_text_mask_tensor = (alpha_pil_tensor > 0).float()
-            # text_block_pixel_mask 업데이트도 기존과 동일
             text_block_pixel_mask[:, current_text_block_bbox.y1:current_text_block_bbox.y2,
             current_text_block_bbox.x1:current_text_block_bbox.x2] = \
                 torch.maximum(text_block_pixel_mask[:, current_text_block_bbox.y1:current_text_block_bbox.y2,
                               current_text_block_bbox.x1:current_text_block_bbox.x2], current_text_mask_tensor)
 
-            # 4. CharInfo 처리
-            if generate_craft_gt and char_infos_relative_to_block_pil and all_char_infos_for_craft is not None:
+            # 2-4. 문자 정보(CharInfo) 처리
+            if generate_craft_gt and char_infos_relative_to_block_pil:
                 for char_info_rel in char_infos_relative_to_block_pil:
                     abs_polygon = char_info_rel.polygon + np.array([abs_x_on_img, abs_y_on_img])
                     final_word_id = current_text_block_id_base + char_info_rel.word_id
@@ -141,20 +242,19 @@ class ImageLoader:
                         CharInfo(abs_polygon, char_info_rel.char_content, final_word_id)
                     )
 
-            if generate_craft_gt and all_char_infos_for_craft is not None:
-                max_rel_word_id_in_block = -1
-                if char_infos_relative_to_block_pil:
-                    for ci_rel in char_infos_relative_to_block_pil:
-                        if ci_rel.word_id > max_rel_word_id_in_block:
-                            max_rel_word_id_in_block = ci_rel.word_id
-                current_text_block_id_base += (max_rel_word_id_in_block + 1)
+                # 다음 텍스트 블록의 word_id가 겹치지 않도록 base 업데이트
+                max_rel_word_id = max(ci.word_id for ci in char_infos_relative_to_block_pil)
+                current_text_block_id_base += (max_rel_word_id + 1)
 
-        # 5. Score map 생성
-        target_h_map, target_w_map = img_h // 2, img_w // 2
-        region_score_map_tensor, affinity_score_map_tensor = self._create_craft_gt_maps(
-            all_char_infos_for_craft, (target_h_map, target_w_map)
-        )
+        # --- 3. CRAFT Ground Truth Score Map 생성 ---
+        if generate_craft_gt:
+            target_h_map, target_w_map = img_h // 2, img_w // 2
+            region_score_map_tensor, affinity_score_map_tensor = self._create_craft_gt_maps(
+                all_char_infos_for_craft,
+                (target_h_map, target_w_map)
+            )
 
+        # --- 4. 최종 TextedImage 객체 생성 및 반환 ---
         return TextedImage(
             orig=orig_tensor,
             timg=timg_tensor,
@@ -164,8 +264,7 @@ class ImageLoader:
             region_score_map=region_score_map_tensor,
             affinity_score_map=affinity_score_map_tensor,
         )
-
-    def _render_text_block_and_get_char_infos(
+  def _render_text_block_and_get_char_infos(
             self,
             text_content_str: str,
             font_obj: ImageFont.FreeTypeFont,
@@ -478,141 +577,140 @@ class ImageLoader:
 
         return cropped_final_img_pil, char_infos_list_relative_to_cropped
 
-    def _create_craft_gt_maps(
-            self,
-            all_char_infos_abs_coords: List[CharInfo],
-            target_map_output_size: Tuple[int, int],
-            gaussian_variance_scale_factor: float = 0.25,
-            affinity_gaussian_scale_factor_major: float = 0.3,
-            affinity_gaussian_scale_factor_minor: float = 0.15,
-            min_char_size_on_map: int = 2
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        주어진 문자 정보 리스트로부터 Region 및 Affinity Score Map을 생성합니다.
-        이 함수는 원본 CRAFT 구현의 GT 생성 방식을 따릅니다.
-        텍스트가 없는 이미지에 대해서는 0으로 채워진 맵을 반환합니다.
+  def _create_craft_gt_maps(
+              self,
+              all_char_infos_abs_coords: List[CharInfo],
+              target_map_output_size: Tuple[int, int],
+              gaussian_variance_scale_factor: float = 0.25,
+              affinity_gaussian_scale_factor_major: float = 0.3,
+              affinity_gaussian_scale_factor_minor: float = 0.15,
+              min_char_size_on_map: int = 2
+      ) -> Tuple[torch.Tensor, torch.Tensor]:
+          """
+          주어진 문자 정보 리스트로부터 Region 및 Affinity Score Map을 생성합니다.
+          이 함수는 원본 CRAFT 구현의 GT 생성 방식을 따릅니다.
+          텍스트가 없는 이미지에 대해서는 0으로 채워진 맵을 반환합니다.
 
-        Args:
-            all_char_infos_abs_coords (List[CharInfo]): 이미지 전체 좌표 기준의 문자 정보 리스트.
-            target_map_output_size (Tuple[int, int]): 생성할 GT 맵의 (높이, 너비).
-            ... (다른 파라미터들)
+          Args:
+              all_char_infos_abs_coords (List[CharInfo]): 이미지 전체 좌표 기준의 문자 정보 리스트.
+              target_map_output_size (Tuple[int, int]): 생성할 GT 맵의 (높이, 너비).
+              ... (다른 파라미터들)
 
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: (Region Score Map, Affinity Score Map) 텐서 튜플.
-        """
-        # --- 1. 초기화 ---
-        target_h, target_w = target_map_output_size
-        region_map_np = np.zeros((target_h, target_w), dtype=np.float32)
-        affinity_map_np = np.zeros((target_h, target_w), dtype=np.float32)
+          Returns:
+              Tuple[torch.Tensor, torch.Tensor]: (Region Score Map, Affinity Score Map) 텐서 튜플.
+          """
+          # --- 1. 초기화 ---
+          target_h, target_w = target_map_output_size
+          region_map_np = np.zeros((target_h, target_w), dtype=np.float32)
+          affinity_map_np = np.zeros((target_h, target_w), dtype=np.float32)
 
-        # 텍스트가 없는 경우(all_char_infos가 비어있음), 0으로 채워진 맵을 즉시 반환
-        if not all_char_infos_abs_coords:
-            region_map_tensor = torch.from_numpy(region_map_np).unsqueeze(0)
-            affinity_map_tensor = torch.from_numpy(affinity_map_np).unsqueeze(0)
-            return region_map_tensor, affinity_map_tensor
+          # 텍스트가 없는 경우(all_char_infos가 비어있음), 0으로 채워진 맵을 즉시 반환
+          if not all_char_infos_abs_coords:
+              region_map_tensor = torch.from_numpy(region_map_np).unsqueeze(0)
+              affinity_map_tensor = torch.from_numpy(affinity_map_np).unsqueeze(0)
+              return region_map_tensor, affinity_map_tensor
 
-        # 전체 맵에 대한 좌표 그리드 생성 (한 번만)
-        xx_mesh, yy_mesh = np.meshgrid(np.arange(target_w), np.arange(target_h))
+          # 전체 맵에 대한 좌표 그리드 생성 (한 번만)
+          xx_mesh, yy_mesh = np.meshgrid(np.arange(target_w), np.arange(target_h))
 
-        # --- 2. Region Score Map 생성 ---
-        for char_info in all_char_infos_abs_coords:
-            poly_on_map = char_info.polygon / 2.0
-            poly_on_map_int = poly_on_map.astype(np.int32)
-            if poly_on_map_int.shape[0] < 3: continue
+          # --- 2. Region Score Map 생성 ---
+          for char_info in all_char_infos_abs_coords:
+              poly_on_map = char_info.polygon / 2.0
+              poly_on_map_int = poly_on_map.astype(np.int32)
+              if poly_on_map_int.shape[0] < 3: continue
 
-            try:
-                rect = cv2.minAreaRect(poly_on_map_int.reshape(-1, 1, 2))
-            except cv2.error:
-                continue
+              try:
+                  rect = cv2.minAreaRect(poly_on_map_int.reshape(-1, 1, 2))
+              except cv2.error:
+                  continue
 
-            (center_x, center_y), (width, height), angle_cv = rect
-            width = max(width, min_char_size_on_map)
-            height = max(height, min_char_size_on_map)
+              (center_x, center_y), (width, height), angle_cv = rect
+              width = max(width, min_char_size_on_map)
+              height = max(height, min_char_size_on_map)
 
-            std_dev_x = (width / 2.0) * gaussian_variance_scale_factor
-            std_dev_y = (height / 2.0) * gaussian_variance_scale_factor
-            variance_x_sq = max(std_dev_x, 0.5) ** 2 + 1e-6
-            variance_y_sq = max(std_dev_y, 0.5) ** 2 + 1e-6
+              std_dev_x = (width / 2.0) * gaussian_variance_scale_factor
+              std_dev_y = (height / 2.0) * gaussian_variance_scale_factor
+              variance_x_sq = max(std_dev_x, 0.5) ** 2 + 1e-6
+              variance_y_sq = max(std_dev_y, 0.5) ** 2 + 1e-6
 
-            angle_rad = np.radians(-angle_cv)
-            cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+              angle_rad = np.radians(-angle_cv)
+              cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
 
-            shifted_x, shifted_y = xx_mesh - center_x, yy_mesh - center_y
-            rotated_x = shifted_x * cos_a - shifted_y * sin_a
-            rotated_y = shifted_x * sin_a + shifted_y * cos_a
+              shifted_x, shifted_y = xx_mesh - center_x, yy_mesh - center_y
+              rotated_x = shifted_x * cos_a - shifted_y * sin_a
+              rotated_y = shifted_x * sin_a + shifted_y * cos_a
 
-            gaussian_values = np.exp(-((rotated_x ** 2 / (2 * variance_x_sq)) + (rotated_y ** 2 / (2 * variance_y_sq))))
+              gaussian_values = np.exp(-((rotated_x ** 2 / (2 * variance_x_sq)) + (rotated_y ** 2 / (2 * variance_y_sq))))
 
-            mask = np.zeros_like(region_map_np, dtype=np.uint8)
-            cv2.fillPoly(mask, [poly_on_map_int], 1)
-            region_map_np = np.maximum(region_map_np, gaussian_values * mask)
+              mask = np.zeros_like(region_map_np, dtype=np.uint8)
+              cv2.fillPoly(mask, [poly_on_map_int], 1)
+              region_map_np = np.maximum(region_map_np, gaussian_values * mask)
 
-        # --- 3. Affinity Score Map 생성 ---
-        # 가. 문자를 단어(word_id)별로 그룹화
-        words_data = {}
-        for char_info in all_char_infos_abs_coords:
-            words_data.setdefault(char_info.word_id, []).append(char_info)
+          # --- 3. Affinity Score Map 생성 ---
+          # 가. 문자를 단어(word_id)별로 그룹화
+          words_data = {}
+          for char_info in all_char_infos_abs_coords:
+              words_data.setdefault(char_info.word_id, []).append(char_info)
 
-        # 나. 각 단어 내 인접 문자 쌍에 대해 어피니티 계산
-        for _, chars_in_word in words_data.items():
-            if len(chars_in_word) < 2: continue
+          # 나. 각 단어 내 인접 문자 쌍에 대해 어피니티 계산
+          for _, chars_in_word in words_data.items():
+              if len(chars_in_word) < 2: continue
 
-            # 문자를 x좌표 기준으로 정렬하여 처리 순서 결정
-            sorted_chars = sorted(chars_in_word, key=lambda ci: (ci.polygon[0, 0], ci.polygon[0, 1]))
+              # 문자를 x좌표 기준으로 정렬하여 처리 순서 결정
+              sorted_chars = sorted(chars_in_word, key=lambda ci: (ci.polygon[0, 0], ci.polygon[0, 1]))
 
-            for i in range(len(sorted_chars) - 1):
-                char1, char2 = sorted_chars[i], sorted_chars[i + 1]
-                poly1, poly2 = char1.polygon / 2.0, char2.polygon / 2.0
+              for i in range(len(sorted_chars) - 1):
+                  char1, char2 = sorted_chars[i], sorted_chars[i + 1]
+                  poly1, poly2 = char1.polygon / 2.0, char2.polygon / 2.0
 
-                # 어피니티 가우시안 중심 및 방향 계산
-                center1, center2 = np.mean(poly1, axis=0), np.mean(poly2, axis=0)
-                aff_center_x, aff_center_y = (center1[0] + center2[0]) / 2.0, (center1[1] + center2[1]) / 2.0
-                angle_rad = np.arctan2(center2[1] - center1[1], center2[0] - center1[0])
+                  # 어피니티 가우시안 중심 및 방향 계산
+                  center1, center2 = np.mean(poly1, axis=0), np.mean(poly2, axis=0)
+                  aff_center_x, aff_center_y = (center1[0] + center2[0]) / 2.0, (center1[1] + center2[1]) / 2.0
+                  angle_rad = np.arctan2(center2[1] - center1[1], center2[0] - center1[0])
 
-                # 어피니티 가우시안 크기(표준편차) 계산
-                dist = np.linalg.norm(center1 - center2)
-                if dist < 1e-3: continue
+                  # 어피니티 가우시안 크기(표준편차) 계산
+                  dist = np.linalg.norm(center1 - center2)
+                  if dist < 1e-3: continue
 
-                h1 = np.max(poly1[:, 1]) - np.min(poly1[:, 1]) if poly1.shape[0] > 0 else 0
-                h2 = np.max(poly2[:, 1]) - np.min(poly2[:, 1]) if poly2.shape[0] > 0 else 0
-                avg_h = max((h1 + h2) / 2.0, 1.0)  # 0으로 나누기 방지
+                  h1 = np.max(poly1[:, 1]) - np.min(poly1[:, 1]) if poly1.shape[0] > 0 else 0
+                  h2 = np.max(poly2[:, 1]) - np.min(poly2[:, 1]) if poly2.shape[0] > 0 else 0
+                  avg_h = max((h1 + h2) / 2.0, 1.0)  # 0으로 나누기 방지
 
-                std_major = dist * affinity_gaussian_scale_factor_major
-                std_minor = avg_h * affinity_gaussian_scale_factor_minor
-                var_major_sq = max(std_major, 0.5) ** 2 + 1e-6
-                var_minor_sq = max(std_minor, 0.5) ** 2 + 1e-6
+                  std_major = dist * affinity_gaussian_scale_factor_major
+                  std_minor = avg_h * affinity_gaussian_scale_factor_minor
+                  var_major_sq = max(std_major, 0.5) ** 2 + 1e-6
+                  var_minor_sq = max(std_minor, 0.5) ** 2 + 1e-6
 
-                # 회전된 가우시안 값 계산
-                cos_a, sin_a = np.cos(-angle_rad), np.sin(-angle_rad)
-                shifted_x, shifted_y = xx_mesh - aff_center_x, yy_mesh - aff_center_y
-                rotated_x = shifted_x * cos_a - shifted_y * sin_a
-                rotated_y = shifted_x * sin_a + shifted_y * cos_a
+                  # 회전된 가우시안 값 계산
+                  cos_a, sin_a = np.cos(-angle_rad), np.sin(-angle_rad)
+                  shifted_x, shifted_y = xx_mesh - aff_center_x, yy_mesh - aff_center_y
+                  rotated_x = shifted_x * cos_a - shifted_y * sin_a
+                  rotated_y = shifted_x * sin_a + shifted_y * cos_a
 
-                gaussian_values = np.exp(
-                    -((rotated_x ** 2 / (2 * var_major_sq)) + (rotated_y ** 2 / (2 * var_minor_sq))))
+                  gaussian_values = np.exp(
+                      -((rotated_x ** 2 / (2 * var_major_sq)) + (rotated_y ** 2 / (2 * var_minor_sq))))
 
-                # 두 문자를 잇는 볼록 다각형(convex hull)에만 가우시안 적용
-                mask = np.zeros_like(affinity_map_np, dtype=np.uint8)
-                combined_poly = np.concatenate((poly1.astype(np.int32), poly2.astype(np.int32)), axis=0)
-                if combined_poly.shape[0] >= 3:
-                    try:
-                        hull = cv2.convexHull(combined_poly)
-                        cv2.fillPoly(mask, [hull], 1)
-                    except cv2.error:  # 점이 너무 적거나 일직선상에 있어 hull을 만들 수 없는 경우
-                        cv2.line(mask, tuple(center1.astype(np.int32)), tuple(center2.astype(np.int32)), 1,
-                                 thickness=int(max(1, avg_h * 0.2)))
-                elif combined_poly.shape[0] > 1:  # 점이 2개일 때
-                    cv2.line(mask, tuple(center1.astype(np.int32)), tuple(center2.astype(np.int32)), 1,
-                             thickness=int(max(1, avg_h * 0.2)))
+                  # 두 문자를 잇는 볼록 다각형(convex hull)에만 가우시안 적용
+                  mask = np.zeros_like(affinity_map_np, dtype=np.uint8)
+                  combined_poly = np.concatenate((poly1.astype(np.int32), poly2.astype(np.int32)), axis=0)
+                  if combined_poly.shape[0] >= 3:
+                      try:
+                          hull = cv2.convexHull(combined_poly)
+                          cv2.fillPoly(mask, [hull], 1)
+                      except cv2.error:  # 점이 너무 적거나 일직선상에 있어 hull을 만들 수 없는 경우
+                          cv2.line(mask, tuple(center1.astype(np.int32)), tuple(center2.astype(np.int32)), 1,
+                                   thickness=int(max(1, avg_h * 0.2)))
+                  elif combined_poly.shape[0] > 1:  # 점이 2개일 때
+                      cv2.line(mask, tuple(center1.astype(np.int32)), tuple(center2.astype(np.int32)), 1,
+                               thickness=int(max(1, avg_h * 0.2)))
 
-                affinity_map_np = np.maximum(affinity_map_np, gaussian_values * mask)
+                  affinity_map_np = np.maximum(affinity_map_np, gaussian_values * mask)
 
-        # --- 4. 최종 결과 반환 ---
-        region_map_tensor = torch.from_numpy(np.clip(region_map_np, 0, 1)).unsqueeze(0)
-        affinity_map_tensor = torch.from_numpy(np.clip(affinity_map_np, 0, 1)).unsqueeze(0)
+          # --- 4. 최종 결과 반환 ---
+          region_map_tensor = torch.from_numpy(np.clip(region_map_np, 0, 1)).unsqueeze(0)
+          affinity_map_tensor = torch.from_numpy(np.clip(affinity_map_np, 0, 1)).unsqueeze(0)
 
-        return region_map_tensor, affinity_map_tensor
-
+          return region_map_tensor, affinity_map_tensor
     def _get_random_font(self, size: int) -> Optional[ImageFont.FreeTypeFont]:
         # 하나 선택
         _path = random.choice(self.font_paths)
@@ -706,10 +804,14 @@ class ImageLoader:
     def _render_text_layer(
         self, text_content: str, font: ImageFont.FreeTypeFont, policy_is_sfx: bool
     ) -> Optional[Image.Image]:
+
+        # 텍스트 색 설정
         if self.policy.text_color_is_random:
             text_color = self._get_random_rgba()
         else:
             text_color = random.choice(self.policy.fixed_text_color_options)
+
+        # 외곽선 두께 색 설정
         stroke_width = 0
         if self.policy.stroke_color_is_random:
             stroke_fill = self._get_random_rgba()
@@ -726,8 +828,11 @@ class ImageLoader:
                     max(stroke_width, int(font.size * 0.15)),
                     self.policy.stroke_width_limit_px[1] * 2,
                 )
-            stroke_fill = self._get_random_rgba()
-
+            if self.policy.stroke_color_is_random:
+                stroke_fill = self._get_random_rgba()
+            else:
+                stroke_fill = random.choice(self.policy.fixed_stroke_color_options)
+        # 그림자 설정
         shadow_params = None
         if random.random() < self.policy.shadow_prob or policy_is_sfx:
             s_off_x_r = random.uniform(
@@ -754,8 +859,7 @@ class ImageLoader:
                 s_blur,
                 s_color,
             )
-
-        final_text = text_content
+        # 텍스트 정렬 설정
         text_align = random.choice(self.policy.text_align_options)
         line_spacing = int(
             font.size
@@ -766,14 +870,14 @@ class ImageLoader:
         try:
             text_bbox = _draw_dummy.textbbox(
                 (0, 0),
-                final_text,
+                text_content,
                 font=font,
                 stroke_width=stroke_width,
                 spacing=line_spacing,
                 align=text_align,
             )
         except TypeError:
-            text_bbox = _draw_dummy.textbbox((0, 0), final_text, font=font)
+            text_bbox = _draw_dummy.textbbox((0, 0), text_content, font=font)
             if stroke_width > 0:
                 text_bbox = (
                     text_bbox[0] - stroke_width,
@@ -817,7 +921,7 @@ class ImageLoader:
             shadow_draw = ImageDraw.Draw(shadow_layer)
             shadow_draw.text(
                 (draw_origin_x + s_offset_x, draw_origin_y + s_offset_y),
-                final_text,
+                text_content,
                 font=font,
                 fill=s_color_rgba,
                 stroke_width=stroke_width,
@@ -833,7 +937,7 @@ class ImageLoader:
 
         draw.text(
             (draw_origin_x, draw_origin_y),
-            final_text,
+            text_content,
             font=font,
             fill=text_color,
             stroke_width=stroke_width,

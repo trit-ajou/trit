@@ -13,9 +13,10 @@ class TimgGeneration(Enum):
     test = 3
 @dataclass
 class PipelineSetting:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # 모델 돌릴 땐 GPU로 바꾸쇼
     use_amp = True
-    num_workers = 8
+    num_workers = 4  # for imageloader
 
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
@@ -26,11 +27,11 @@ class PipelineSetting:
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
     debug_dir = f"{_script_dir}/debug"
 
-    model1_input_size = (256, 256)
+    model1_input_size = (1700, 2400)
     model2_input_size = (256, 256)
-    model3_input_size = (256, 256)
+    model3_input_size = (512, 512)
 
-    num_images = 128
+    num_images = 20
     use_noise = False
     margin = 4
     max_objects = 1024
@@ -40,6 +41,11 @@ class PipelineSetting:
     weight_decay = 3e-4
     train_valid_split = 0.2
     timg_generation = TimgGeneration.generate_only
+    lora_rank = 8
+    lora_alpha = 16
+    lora_weight_path = "trit/models/lora"
+    mask_weight = 2.0
+
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP
     model3_mode = ModelMode.SKIP
@@ -55,11 +61,11 @@ from typing import Literal
 @dataclass
 class ImagePolicy:
     # --- 기본 설정 ---
-    num_texts: tuple[int, int] = (1, 5)
+    num_texts: tuple[int, int] = (1, 3)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
-    # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.1)
+    # 텍스트 높이를 이미지 높이에 대한 비율로 설정
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.015)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률
@@ -147,5 +153,4 @@ class ImagePolicy:
     # 이 플래그가 True이면, 실제 값을 생성하는 로직에서
     # 예를 들어 font_size_ratio를 더 크게, rotation_angle 범위를 더 넓게,
     # 외곽선을 더 두껍고 화려하게, 변형을 더 강하게 적용.
-    sfx_style_prob: float = 0.1  # SFX 스타일 적용 확률
-
+    sfx_style_prob: float = 0.0  # SFX 스타일 적용 확률

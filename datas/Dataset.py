@@ -1,11 +1,13 @@
 import torch
 from torch.utils.data import Dataset
+from .TextedImage import TextedImage
 from typing import List, Tuple, Dict, Any  # Import Any
 from .TextedImage import TextedImage  # TextedImage is in the same directory
 from . import imgproc
 from torch.autograd import Variable
 import cv2
 import numpy as np
+
 
 class MangaDataset1(Dataset):
     def __init__(self,
@@ -121,45 +123,23 @@ class MangaDataset1(Dataset):
 
 
 class MangaDataset2(Dataset):
-    def __init__(
-        self, texted_image_list: List[TextedImage], input_size: Tuple[int, int]
-    ):
+    def __init__():
         super().__init__()
-        self.texted_images = texted_image_list
-        self.input_size = input_size
+        self.data = data
 
-    def __len__(self) -> int:
-        return len(self.texted_images)
-
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        texted_image = self.texted_images[idx]
-        texted_image._resize(self.input_size)
-        input_tensor = texted_image.timg
-        target_mask = texted_image.mask  # Should be (1, H, W)
-
-        return input_tensor, target_mask
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx: int):
+        return self.data[idx]
 
 
-class MangaDataset3(Dataset):
-    def __init__(
-        self, texted_image_list: List[TextedImage], input_size: Tuple[int, int]
-    ):
+class MangaDataset3(Dataset): # 초간단 model3 데이터셋
+    def __init__(self, data: list[TextedImage]):
         super().__init__()
-        self.texted_images = texted_image_list
-        self.input_size = input_size
+        self.data = data
+    def __len__(self):
+        return len(self.data)
 
-    def __len__(self) -> int:
-        return len(self.texted_images)
-
-    def __getitem__(self, idx: int) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
-        texted_image = self.texted_images[idx]
-        texted_image._resize(self.input_size)
-
-        # Model3 input is typically the texted image and the mask
-        input_dict = {
-            "image_with_text": texted_image.timg,  # (C, H, W)
-            "mask": texted_image.mask,  # (1, H, W)
-        }
-        target_image = texted_image.orig  # (C, H, W)
-
-        return input_dict, target_image
+    def __getitem__(self, idx: int):
+        return self.data[idx]

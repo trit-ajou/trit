@@ -14,6 +14,8 @@ class ModelMode(Enum):
     SKIP = 0
     TRAIN = 1
     INFERENCE = 2
+    PRETRAINED = 3
+    PRETRAINED_TRAIN = 4
 def tensor_rgb_to_cv2(t: torch.Tensor) -> np.ndarray:
     """
     (C,H,W) 0-1 float RGB tensor ➜ (H,W,3) 0-255 uint8 BGR ndarray
