@@ -89,8 +89,8 @@ class Model3_pretrained(nn.Module):
             print(f"Error setting up LoRA: {e}")
             return
         
-        # 데이터셋을 훈련/검증 세트로 분할
-        train_size = int(0.8 * len(texted_images_for_model3))
+        # 데이터셋을 훈련/검증 세트로 분할 (70:30 비율)
+        train_size = int(0.7 * len(texted_images_for_model3))
         val_size = len(texted_images_for_model3) - train_size
         
         full_train_set = MangaDataset3(texted_images_for_model3)
@@ -472,12 +472,11 @@ Training Summary:
         """
         SD2용 인페인팅 학습 방식에 맞게 수정된 검증 손실 계산 함수
         """
-        # 데이터 타입 문제 해결을 위해 모델을 fp32로 임시 변환
+        # 검증에서도 훈련과 동일한 데이터 타입 사용 (fp16)
         original_dtype = next(unet_lora.parameters()).dtype
-        print(f"[Validation] Original model dtype: {original_dtype}")
+        print(f"[Validation] Model dtype: {original_dtype}")
 
-        # UNet을 fp32로 변환
-        unet_lora.float()
+        # 모델을 평가 모드로 설정 (데이터 타입은 그대로 유지)
         unet_lora.eval()
 
         device = self.device
@@ -546,10 +545,10 @@ Training Summary:
                 latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                 timesteps_input = torch.cat([timesteps] * 2, dim=0)
 
-                # validation에서는 fp32 사용 (데이터 타입 일관성)
-                latent_model_input = latent_model_input.to(dtype=torch.float32)
+                # validation에서도 훈련과 동일한 fp16 사용 (데이터 타입 일관성)
+                latent_model_input = latent_model_input.to(dtype=weight_dtype)  # fp16
                 timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
-                prompt_embeds_full = prompt_embeds_full.to(dtype=torch.float32)
+                prompt_embeds_full = prompt_embeds_full.to(dtype=weight_dtype)  # fp16
 
                 noise_pred = unet_lora(
                     sample=latent_model_input,
@@ -580,10 +579,8 @@ Training Summary:
         
         avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
 
-        # 모델을 원래 데이터 타입으로 복원
-        if original_dtype == torch.float16:
-            unet_lora.half()
-        print(f"[Validation] Restored model dtype to: {next(unet_lora.parameters()).dtype}")
+        # 모델 타입은 변경하지 않았으므로 복원 불필요
+        print(f"[Validation] Model dtype maintained: {next(unet_lora.parameters()).dtype}")
 
         return avg_val_loss
 
