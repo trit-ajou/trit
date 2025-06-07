@@ -264,7 +264,7 @@ class ImageLoader:
             region_score_map=region_score_map_tensor,
             affinity_score_map=affinity_score_map_tensor,
         )
-  def _render_text_block_and_get_char_infos(
+    def _render_text_block_and_get_char_infos(
             self,
             text_content_str: str,
             font_obj: ImageFont.FreeTypeFont,
@@ -577,7 +577,7 @@ class ImageLoader:
 
         return cropped_final_img_pil, char_infos_list_relative_to_cropped
 
-  def _create_craft_gt_maps(
+    def _create_craft_gt_maps(
               self,
               all_char_infos_abs_coords: List[CharInfo],
               target_map_output_size: Tuple[int, int],

@@ -55,7 +55,7 @@ class PipelineMgr:
         self.setting = setting
         self.imageloader = ImageLoader(setting, policy)
         self.texted_images = None
-		os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+        os.makedirs(self.setting.ckpt_dir, exist_ok=True)
         os.makedirs(self.setting.font_dir, exist_ok=True)
         os.makedirs(self.setting.clear_img_dir, exist_ok=True)
         os.makedirs(self.setting.output_img_dir, exist_ok=True)
@@ -80,20 +80,20 @@ class PipelineMgr:
             print("[Pipeline] Generating TextedImages")
 #             self.texted_images = self.imageloader.load_images(
 #                 self.setting.num_images, self.setting.clear_img_dir, self.setting.model3_input_size)
-			self.imageloader.start_loading_async(
+            self.imageloader.start_loading_async(
 						num_images=self.setting.num_images,
 						dir=self.setting.clear_img_dir,
 						max_text_size=self.setting.model3_input_size,
 					)
-			self.texted_images = self.imageloader.get_loaded_images()
+            self.texted_images = self.imageloader.get_loaded_images()
         elif self.setting.timg_generation == TimgGeneration.generate_save:
             print("[Pipeline] Generating TextedImages and Save", self.setting.model3_input_size)
-			self.imageloader.start_loading_async(
+            self.imageloader.start_loading_async(
 						num_images=self.setting.num_images,
 						dir=self.setting.clear_img_dir,
 						max_text_size=self.setting.model3_input_size,
 					)
-			self.texted_images = self.imageloader.get_loaded_images()
+            self.texted_images = self.imageloader.get_loaded_images()
             save_timgs(self.texted_images, self.setting.texted_img_dir)
             num_viz_samples = getattr(self.setting, 'num_gt_viz_samples', 3)  # 설정 또는 기본값
             num_viz_samples = min(num_viz_samples, len(self.texted_images))
