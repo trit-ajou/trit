@@ -32,6 +32,10 @@ class PipelineSetting:
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
+    lora_rank = 8
+    lora_alpha = 16
+    lora_weight_path = "trit/models/lora"
+    mask_weight = 2.0
 
     model1_mode = ModelMode.SKIP
     model2_mode = ModelMode.SKIP
@@ -48,7 +52,7 @@ from typing import Literal
 @dataclass
 class ImagePolicy:
     # --- 기본 설정 ---
-    num_texts: tuple[int, int] = (1, 5)
+    num_texts: tuple[int, int] = (1, 3)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정

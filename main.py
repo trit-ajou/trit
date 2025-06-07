@@ -1,8 +1,11 @@
 import argparse
+import os
 
 from .Pipeline import PipelineMgr
 from .Utils import PipelineSetting, ImagePolicy
 from .models.Utils import ModelMode
+
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 
 def parse_args():
@@ -22,8 +25,8 @@ def parse_args():
     parser.add_argument(
         "--model3",
         type=str,
-        default="default",
-        choices=["skip", "train", "inference"],
+        default="skip",
+        choices=["skip", "train", "inference", "pretrained", "pretrained-train"],
     )
     parser.add_argument("--use_amp", action="store_true")
     parser.add_argument("--num_workers", type=int, default=PipelineSetting.num_workers)
@@ -37,6 +40,13 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=PipelineSetting.weight_decay)
     parser.add_argument("--vis_interval", type=int, default=PipelineSetting.vis_interval)
     parser.add_argument("--ckpt_interval", type=int, default=PipelineSetting.ckpt_interval)
+    
+    # Model 3 training Options
+    parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
+    parser.add_argument("--lora_rank", type=int, default=8)
+    parser.add_argument("--lora_weight_path", type = str, default="trit/models/lora")
+    parser.add_argument("--mask_weight", type=float, default=2.0)
+    
     args = parser.parse_args()
     return args
 
@@ -64,6 +74,11 @@ if __name__ == "__main__":
         setting.model3_mode = ModelMode.TRAIN
     elif args.model3 == "inference":
         setting.model3_mode = ModelMode.INFERENCE
+    elif args.model3 == "pretrained":
+        setting.model3_mode = ModelMode.PRETRAINED
+    elif args.model3 == "pretrained-train":
+        setting.model3_mode = ModelMode.PRETRAINED_TRAIN
+
     setting.use_amp = args.use_amp
     setting.num_workers = args.num_workers
     setting.num_images = args.num_images
@@ -76,6 +91,13 @@ if __name__ == "__main__":
     setting.weight_decay = args.weight_decay
     setting.vis_interval = args.vis_interval
     setting.ckpt_interval = args.ckpt_interval
+    setting.clear_img_dir = args.images_dir
+    setting.lora_rank = args.lora_rank
+    setting.lora_alpha = setting.lora_rank * 2
+    setting.lora_weight_path = args.lora_weight_path
+    
+    
+    
 
     pipeline = PipelineMgr(setting, policy)
     pipeline.run()

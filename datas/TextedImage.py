@@ -3,6 +3,7 @@ import pickle
 import torch
 import torchvision.transforms.functional as VTF
 import matplotlib.pyplot as plt
+import os
 from torch import Tensor as img_tensor
 from PIL import Image, ImageDraw
 
@@ -87,11 +88,21 @@ class TextedImage:
         return texted_images
 
     def merge_cropped(self, cropped_texted_images: list["TextedImage"]):
-        for bbox, cropped_texted_image in zip(self.bboxes, cropped_texted_images):
+        for i, (bbox, cropped_texted_image) in enumerate(zip(self.bboxes, cropped_texted_images)):
+            print(f"DEBUG merge_cropped: Processing bbox {i}")
+            print(f"DEBUG merge_cropped: bbox = {bbox} (height={bbox.height}, width={bbox.width})")
+
             _bbox = cropped_texted_image.bboxes[0]
+            print(f"DEBUG merge_cropped: _bbox = {_bbox}")
+            print(f"DEBUG merge_cropped: cropped_texted_image.orig.shape before slice = {cropped_texted_image.orig.shape}")
+
             cropped_texted_image.orig = cropped_texted_image.orig[_bbox.slice]
             cropped_texted_image.timg = cropped_texted_image.timg[_bbox.slice]
             cropped_texted_image.mask = cropped_texted_image.mask[_bbox.slice]
+
+            print(f"DEBUG merge_cropped: cropped_texted_image.orig.shape after slice = {cropped_texted_image.orig.shape}")
+            print(f"DEBUG merge_cropped: About to call _resize with size = ({bbox.height}, {bbox.width})")
+
             cropped_texted_image._resize((bbox.height, bbox.width))
             self.orig[bbox.slice] = cropped_texted_image.orig
             self.timg[bbox.slice] = cropped_texted_image.timg
@@ -101,9 +112,23 @@ class TextedImage:
         """Note: this function does not create new `TextedImage` obejct but modifies itself."""
         _, H, W = self.orig.shape
         TARGET_H, TARGET_W = size
+
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: orig.shape={self.orig.shape}, H={H}, W={W}")
+        print(f"DEBUG _resize: target size={size}, TARGET_H={TARGET_H}, TARGET_W={TARGET_W}")
+
         # Calculate aspect ratios
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Height is zero: H={H}, orig.shape={self.orig.shape}")
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate original_aspect")
+            raise ValueError(f"Width is zero: W={W}, orig.shape={self.orig.shape}")
+
         original_aspect = W / H
         target_aspect = TARGET_W / TARGET_H
+        print(f"DEBUG _resize: original_aspect={original_aspect}, target_aspect={target_aspect}")
+
         # Resize
         if original_aspect > target_aspect:
             new_h = int(TARGET_W / original_aspect)
@@ -111,6 +136,9 @@ class TextedImage:
         else:
             new_h = TARGET_H
             new_w = int(TARGET_H * original_aspect)
+
+        print(f"DEBUG _resize: new_h={new_h}, new_w={new_w}")
+
         self.orig = VTF.resize(self.orig, (new_h, new_w))
         self.timg = VTF.resize(self.timg, (new_h, new_w))
         self.mask = VTF.resize(self.mask, (new_h, new_w))
@@ -130,6 +158,20 @@ class TextedImage:
         )
         # resize bboxes
         new_bboxes: list[BBox] = []
+
+        # DEBUG: Print values before potential division by zero
+        print(f"DEBUG _resize: About to calculate scale_w = new_w / W = {new_w} / {W}")
+        print(f"DEBUG _resize: About to calculate scale_h = new_h / H = {new_h} / {H}")
+
+        if W == 0:
+            print(f"ERROR: W is zero! Cannot calculate scale_w")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_w={new_w}, W={W}")
+            raise ValueError(f"Width is zero when calculating scale_w: W={W}")
+        if H == 0:
+            print(f"ERROR: H is zero! Cannot calculate scale_h")
+            print(f"ERROR: orig.shape={self.orig.shape}, new_h={new_h}, H={H}")
+            raise ValueError(f"Height is zero when calculating scale_h: H={H}")
+
         scale_w = new_w / W
         scale_h = new_h / H
         for bbox in self.bboxes:
@@ -230,6 +272,9 @@ class TextedImage:
         return orig, timg, mask
 
     def visualize(self, dir=".", filename="test.png"):
+        # 출력 디렉토리가 없으면 생성
+        os.makedirs(dir, exist_ok=True)
+
         orig, timg, mask = self._to_pil()
         draw = ImageDraw.Draw(timg)
         for bbox in self.bboxes:
