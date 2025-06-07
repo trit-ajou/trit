@@ -23,7 +23,7 @@ class PipelineMgr:
     def run(self):
         ################################################### Step 1: Load Images ##############################################
         print("[Pipeline] Loading Images")
-        self.texted_images: list[TextedImage] = self.imageloader.load_images(
+        self.texted_images: list[TextedImage] = self.imageloader._load_images(
             self.setting.num_images,
             self.setting.clear_img_dir,
             max_text_size=self.setting.model3_input_size,
