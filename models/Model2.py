@@ -4,12 +4,10 @@ import torchvision.models.segmentation as segmentation
 from torchvision.models.segmentation import DeepLabV3_ResNet50_Weights
 
 
-class Model2(nn.Module):
-    """Pixel-wise Mask Generation Model"""
+class DoubleConv(nn.Module):
+    """(convolution => [BN] => ReLU) * 2"""
 
     def __init__(self, num_classes=2, pretrained=True):
-        super().__init__()
-
         # Load pretrained DeepLabv3 with ResNet-50 backbone
         weights = DeepLabV3_ResNet50_Weights.DEFAULT if pretrained else None
         self.deeplabv3 = segmentation.deeplabv3_resnet50(weights=weights)
@@ -76,3 +74,4 @@ class Model2(nn.Module):
 
             # Return single image mask (H, W)
             return binary_mask.squeeze(0)  # Remove batch dimension
+          
