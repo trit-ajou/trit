@@ -305,10 +305,6 @@ class Model3_pretrained(nn.Module):
                 # validation 손실도 기록
                 val_losses.append(val_loss)
 
-                # 실시간 그래프 업데이트 (3 에포크마다)
-                if epoch % 3 == 0 or epoch == num_epochs - 1:
-                    self._update_loss_plot_realtime(train_losses, val_losses, epochs_recorded, lora_weights_path, epoch + 1)
-
                 # 에폭마다 모델 저장
                 # 검증 손실이 개선되면 best_model 저장
                 if val_loss < best_val_loss:
@@ -360,64 +356,6 @@ class Model3_pretrained(nn.Module):
             negative_prompt_embeds = text_encoder(uncond_input_ids)[0]  # [B, S, D]
 
         return prompt_embeds, negative_prompt_embeds
-
-    def _update_loss_plot_realtime(self, train_losses, val_losses, epochs, save_dir, current_epoch):
-        """
-        실시간으로 손실 그래프를 업데이트하는 메서드
-        """
-        import matplotlib.pyplot as plt
-
-        try:
-            plt.figure(figsize=(12, 8))
-
-            # 서브플롯 1: 일반 스케일
-            plt.subplot(2, 1, 1)
-            if train_losses:
-                plt.plot(epochs[:len(train_losses)], train_losses, 'b-', label='Training Loss', linewidth=2, marker='o', markersize=4)
-            if val_losses:
-                plt.plot(epochs[:len(val_losses)], val_losses, 'r-', label='Validation Loss', linewidth=2, marker='s', markersize=4)
-
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.title(f'Training Progress - Epoch {current_epoch}/{len(epochs) + (5 - len(epochs) % 5)}')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-
-            # 최근 손실 값 표시
-            if train_losses:
-                plt.text(0.02, 0.98, f'Latest Train Loss: {train_losses[-1]:.4f}',
-                        transform=plt.gca().transAxes, verticalalignment='top',
-                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
-            if val_losses:
-                plt.text(0.02, 0.88, f'Latest Val Loss: {val_losses[-1]:.4f}',
-                        transform=plt.gca().transAxes, verticalalignment='top',
-                        bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
-
-            # 서브플롯 2: 로그 스케일
-            plt.subplot(2, 1, 2)
-            if train_losses:
-                plt.plot(epochs[:len(train_losses)], train_losses, 'b-', label='Training Loss (Log)', linewidth=2, marker='o', markersize=4)
-            if val_losses:
-                plt.plot(epochs[:len(val_losses)], val_losses, 'r-', label='Validation Loss (Log)', linewidth=2, marker='s', markersize=4)
-
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss (Log Scale)')
-            plt.title('Training Progress (Log Scale)')
-            plt.yscale('log')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-
-            plt.tight_layout()
-
-            # 실시간 그래프 저장
-            plot_path = os.path.join(save_dir, f"loss_progress_epoch_{current_epoch}.png")
-            plt.savefig(plot_path, dpi=150, bbox_inches='tight')
-            plt.close()
-
-            print(f"📈 Real-time plot updated: {plot_path}")
-
-        except Exception as e:
-            print(f"Error updating real-time plot: {e}")
 
     def _save_and_visualize_losses(self, train_losses, val_losses, epochs, save_dir):
         """
