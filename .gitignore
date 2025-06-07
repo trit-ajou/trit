@@ -1,6 +1,7 @@
 .vscode/
 __pycache__/
 datas/checkpoints/
+datas/fonts/
 datas/images/
 test.py
 myenv/

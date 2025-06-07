@@ -2,9 +2,9 @@ import argparse
 import os
 
 from .Pipeline import PipelineMgr
-from .Utils import PipelineSetting, ImagePolicy
+from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 from .models.Utils import ModelMode
-
+from dataclasses import dataclass, field
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
 
@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=PipelineSetting.num_workers)
     parser.add_argument("--num_images", type=int, default=PipelineSetting.num_images)
     parser.add_argument("--use_noise", action="store_true")
+
     parser.add_argument("--margin", type=int, default=PipelineSetting.margin)
     parser.add_argument("--max_objects", type=int, default=PipelineSetting.max_objects)
     parser.add_argument("--epochs", type=int, default=PipelineSetting.epochs)
@@ -40,7 +41,7 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float, default=PipelineSetting.weight_decay)
     parser.add_argument("--vis_interval", type=int, default=PipelineSetting.vis_interval)
     parser.add_argument("--ckpt_interval", type=int, default=PipelineSetting.ckpt_interval)
-    
+    parser.add_argument("--timg_generation", type=str, default="generate_only", choices=["generate_only", "generate_save", "use_saved", "test"])
     # Model 3 training Options
     parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
     parser.add_argument("--lora_rank", type=int, default=8)
@@ -53,9 +54,25 @@ def parse_args():
 
 if __name__ == "__main__":
     setting = PipelineSetting()
-    policy = ImagePolicy()
+    policy = ImagePolicy(text_color_is_random=False,
+                         fixed_text_color_options=[(0, 0, 0),(0, 0, 0)],
+                         opacity_range=(255,255),
+                         stroke_color_is_random=False,
+                         stroke_prob=1,
+                         fixed_stroke_color_options=[(255,255,255),(255,255,255)],
+                         shadow_prob=0,
 
+                         )
+    # print(policy)
     args = parse_args()
+    if args.timg_generation == "generate_only":
+        setting.timg_generation = TimgGeneration.generate_only
+    elif args.timg_generation == "generate_save":
+        setting.timg_generation = TimgGeneration.generate_save
+    elif args.timg_generation == "use_saved":
+        setting.timg_generation = TimgGeneration.use_saved
+    elif args.timg_generation == "test":
+        setting.timg_generation = TimgGeneration.test
     if args.model1 == "skip":
         setting.model1_mode = ModelMode.SKIP
     elif args.model1 == "train":

@@ -3,8 +3,14 @@ import torch
 from dataclasses import dataclass
 
 from .models.Utils import ModelMode
+from enum import Enum
 
 
+class TimgGeneration(Enum):
+    generate_only = 0
+    generate_save = 1
+    use_saved = 2
+    test = 3
 @dataclass
 class PipelineSetting:
     device = torch.device("cpu")
@@ -16,8 +22,10 @@ class PipelineSetting:
     _script_dir = os.path.dirname(_script_path)
     font_dir = f"{_script_dir}/datas/fonts"
     clear_img_dir = f"{_script_dir}/datas/images/clear"
+    texted_img_dir = f"{_script_dir}/datas/images/texted"
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
+    debug_dir = f"{_script_dir}/debug"
 
     model1_input_size = (1700, 2400)
     model2_input_size = (256, 256)
@@ -27,11 +35,12 @@ class PipelineSetting:
     use_noise = False
     margin = 4
     max_objects = 1024
-    epochs = 100
+    epochs = 0 # this is no matter to default value... fuck... go to main.py to change default value
     batch_size = 4
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
+    timg_generation = TimgGeneration.generate_only
     lora_rank = 8
     lora_alpha = 16
     lora_weight_path = "trit/models/lora"

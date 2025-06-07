@@ -2,7 +2,7 @@ import os
 import re
 import torch
 from enum import Enum
-
+import numpy as np
 
 class ModelType(Enum):
     BBOX = 1
@@ -16,7 +16,13 @@ class ModelMode(Enum):
     INFERENCE = 2
     PRETRAINED = 3
     PRETRAINED_TRAIN = 4
-
+def tensor_rgb_to_cv2(t: torch.Tensor) -> np.ndarray:
+    """
+    (C,H,W) 0-1 float RGB tensor ➜ (H,W,3) 0-255 uint8 BGR ndarray
+    """
+    arr = (t.detach().cpu().numpy() * 255).astype(np.uint8)   # CHW, RGB
+    arr = arr.transpose(1, 2, 0)                              # HWC, RGB
+    return arr[..., ::-1]                                     # BGR
 
 def save_ckpt(
     ckpt_dir,

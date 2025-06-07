@@ -839,19 +839,3 @@ class Model3(nn.Module):
             print(f"Error initializing SD3 pipeline: {e}")
             return texted_images_to_inpaint
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
