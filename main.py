@@ -3,7 +3,7 @@ import argparse
 from .Pipeline import PipelineMgr
 from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 from .models.Utils import ModelMode
-
+from dataclasses import dataclass, field
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -44,8 +44,16 @@ def parse_args():
 
 if __name__ == "__main__":
     setting = PipelineSetting()
-    policy = ImagePolicy()
+    policy = ImagePolicy(text_color_is_random=False,
+                         fixed_text_color_options=[(0, 0, 0),(0, 0, 0)],
+                         opacity_range=(255,255),
+                         stroke_color_is_random=False,
+                         stroke_prob=1,
+                         fixed_stroke_color_options=[(255,255,255),(255,255,255)],
+                         shadow_prob=0,
 
+                         )
+    # print(policy)
     args = parse_args()
     if args.timg_generation == "generate_only":
         setting.timg_generation = TimgGeneration.generate_only

@@ -11,7 +11,8 @@ class MangaDataset1(Dataset):
     def __init__(self,
                  texted_image_list: List['TextedImage'],
                  canvas_size: int = 1280,
-                 mag_ratio: float = 1.5):
+                 mag_ratio: float = 1.5,
+                 ):
         """
         CRAFT 모델 학습을 위한 전용 데이터셋.
         __getitem__에서 이미지 및 GT 맵에 대한 리사이즈 및 정규화를 수행합니다.
@@ -25,11 +26,12 @@ class MangaDataset1(Dataset):
         self.texted_images = texted_image_list
         self.canvas_size = canvas_size
         self.mag_ratio = mag_ratio
+        self.debug_dataset1: bool = False
 
     def __len__(self) -> int:
         return len(self.texted_images)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         하나의 샘플에 대해 전처리를 적용하고 (이미지, Region GT, Affinity GT)를 반환합니다.
         """
@@ -103,13 +105,19 @@ class MangaDataset1(Dataset):
         region_gt_tensor = torch.from_numpy(region_gt_final).unsqueeze(0)
         affinity_gt_tensor = torch.from_numpy(affinity_gt_final).unsqueeze(0)
 
-        '''debug'''
-        print("--------------------Dataset1.getitem-----------------")
-        print("Image Shape: ", image_tensor.shape)
-        print("Region GT Shape: ", region_gt_tensor.shape)
-        print("Affinity GT Shape: ", affinity_gt_tensor.shape)
-        print("-----------------------------------------------------")
-        return image_tensor, region_gt_tensor, affinity_gt_tensor
+        if self.debug_dataset1:
+            print("--------------------Dataset1.getitem-----------------")
+            print("Image Shape: ", image_tensor.shape)
+            print("Region GT Shape: ", region_gt_tensor.shape)
+            print("Affinity GT Shape: ", affinity_gt_tensor.shape)
+            print("-----------------------------------------------------")
+            # 원본 이미지와 마스크도 반환 (시각화용)
+            # 전처리가 안 된 원본 텐서를 반환
+
+        original_timg = self.texted_images[idx].timg
+        original_mask = self.texted_images[idx].mask
+
+        return image_tensor, region_gt_tensor, affinity_gt_tensor, original_timg, original_mask
 
 
 class MangaDataset2(Dataset):

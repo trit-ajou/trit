@@ -92,7 +92,7 @@ def save_timgs(timgs: List['TextedImage'], out_dir: str, num_threads: int = 8):
     print(f"[Pipeline] All {len(timgs)} timg/meta saved to {out_dir}")
 
 
-def _load_one(json_path: str, base_dir: str, device: torch.device, flags: Dict[str, bool]) -> 'TextedImage':
+def _load_one(json_path: str, base_dir: str, flags: Dict[str, bool]) -> 'TextedImage':
     """
     [Helper] 단일 메타데이터 파일을 기반으로 TextedImage 객체를 로드합니다.
     flags 딕셔셔리에 따라 필요한 구성 요소만 선택적으로 로드합니다.
@@ -108,15 +108,15 @@ def _load_one(json_path: str, base_dir: str, device: torch.device, flags: Dict[s
     # flags 딕셔너리를 확인하여 선택적으로 파일 로드
     if flags.get("load_orig", False) and "orig_file" in meta:
         orig_path = os.path.join(base_dir, meta["orig_file"])
-        orig = to_tensor(Image.open(orig_path).convert("RGB")).to(device)
+        orig = to_tensor(Image.open(orig_path).convert("RGB"))
 
     if flags.get("load_timg", False) and "timg_file" in meta:
         timg_path = os.path.join(base_dir, meta["timg_file"])
-        timg = to_tensor(Image.open(timg_path).convert("RGB")).to(device)
+        timg = to_tensor(Image.open(timg_path).convert("RGB"))
 
     if flags.get("load_mask", False) and "mask_file" in meta:
         mask_path = os.path.join(base_dir, meta["mask_file"])
-        mask = to_tensor(Image.open(mask_path).convert("L")).to(device)
+        mask = to_tensor(Image.open(mask_path).convert("L"))
 
     if flags.get("load_bboxes", False) and "bboxes" in meta:
         bboxes = [BBox(*pts) for pts in meta.get("bboxes", [])]
@@ -133,14 +133,14 @@ def _load_one(json_path: str, base_dir: str, device: torch.device, flags: Dict[s
         if "region_map_file" in meta:
             try:
                 region_pil = Image.open(os.path.join(base_dir, meta["region_map_file"])).convert("L")
-                region_map = to_tensor(region_pil).to(device)
+                region_map = to_tensor(region_pil)
             except Exception as e:
                 print(f"Warning: Could not load region_map file {meta['region_map_file']}: {e}")
 
         if "affinity_map_file" in meta:
             try:
                 affinity_pil = Image.open(os.path.join(base_dir, meta["affinity_map_file"])).convert("L")
-                affinity_map = to_tensor(affinity_pil).to(device)
+                affinity_map = to_tensor(affinity_pil)
             except Exception as e:
                 print(f"Warning: Could not load affinity_map file {meta['affinity_map_file']}: {e}")
 
@@ -155,7 +155,7 @@ def _load_one(json_path: str, base_dir: str, device: torch.device, flags: Dict[s
 
     # mask가 없을 경우, 이미지 크기에 맞는 빈 마스크 생성
     if mask is None:
-        mask = torch.zeros(1, ref_img.shape[1], ref_img.shape[2], device=device)
+        mask = torch.zeros(1, ref_img.shape[1], ref_img.shape[2])
 
     return TextedImage(orig, timg, mask, bboxes, char_infos, region_map, affinity_map)
 

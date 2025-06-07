@@ -34,7 +34,7 @@ class PipelineSetting:
     use_noise = False
     margin = 4
     max_objects = 1024
-    epochs = 0 # this is no matter to default value.. fuck.. go to main.py
+    epochs = 0 # this is no matter to default value... fuck... go to main.py to change default value
     batch_size = 4
     lr = 0.001
     weight_decay = 3e-4

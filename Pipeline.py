@@ -7,7 +7,8 @@ import torchvision.transforms.functional as VTF  # Added for visualization
 from PIL import ImageDraw  # Added for visualization
 from .models.model1_util.test import test_net
 from .datas.ImageLoader import ImageLoader
-from .datas.TextedImage import TextedImage, save_timgs, load_timgs
+from .datas.TextedImage import TextedImage
+from .datas.textedImage_save_utils import save_timgs, load_timgs
 from .datas.Dataset import (
     MangaDataset1,
     MangaDataset2,
@@ -30,6 +31,7 @@ import torch.nn.functional as F
 from .models.model1_util import imgproc
 import cv2
 from torch.autograd import Variable
+from .models.model1_util.model1_train import train_one_epoch_model1
 
 # Collate function for Model1 DataLoader
 def detection_collate_fn(batch):
@@ -136,14 +138,7 @@ class PipelineMgr:
 
                 # Consider splitting texted_images_for_model1 into train/val sets for robust evaluation.
                 # For now, using the full list for training as per initial plan.
-                train_dataset = MangaDataset1(
-                    texted_images_for_model1,
-                    # ImageLoader에서 이미지를 생성하므로, Dataset에서 transforms는 주로 정규화 등
-                    # torchvision.transforms.Compose([...]) 등으로 전달 가능
-                    # CRAFT 모델은 입력 이미지를 특정 방식으로 정규화해야 할 수 있음
-                    # (예: ImageNet 평균/표준편차) - 이 부분은 모델 정의 또는 학습 스크립트에서 명시되어야 함.
-                    # 여기서는 ImageLoader가 이미 올바른 Tensor를 생성했다고 가정.
-                )
+                train_dataset = MangaDataset1(texted_images_for_model1)
                 train_loader = DataLoader(
                     train_dataset,
                     batch_size=self.setting.batch_size,
@@ -165,161 +160,26 @@ class PipelineMgr:
 
                 print(f"[Pipeline] Starting Model 1 training from epoch {start_epoch}")
                 for epoch in range(start_epoch, self.setting.epochs):
-                    model1.train()
-                    epoch_loss_sum = 0.0
-
-                    batch_iterator = tqdm(
-                        train_loader,
-                        desc=f"Epoch {epoch+1}/{self.setting.epochs} - Model1 Train",
-                        # desc=f"Epoch {epoch + 1}/{3} - Model1 Train",
-                        leave=False,
+                    # 분리된 함수를 호출하여 한 에폭 학습 진행
+                    avg_epoch_loss = train_one_epoch_model1(
+                        model=model1,
+                        train_loader=train_loader,
+                        optimizer=optimizer,
+                        device=model1.device,  # 모델이 있는 디바이스 사용
+                        epoch=epoch,
+                        num_epochs=self.setting.epochs,
+                        vis_save_dir=self.setting.output_img_dir,
                     )
-                    for images, region_targets, affinity_targets in batch_iterator:  # 언패킹 수정
-                        images = images.to(model1.device)  # 필요시 device로 이동
-                        region_targets = region_targets.to(model1.device)
-                        affinity_targets = affinity_targets.to(model1.device)
 
-                        optimizer.zero_grad()
-                        tqdm.write(f"images shape:{tuple(images.shape) }")
-                        # CRAFT 모델의 forward는 (B, 2, H/2, W/2) 형태의 맵과 feature를 반환 가정
-
-
-
-                        output_maps, _ = model1(images)  # model1.forward(self, x) -> y, feature
-                        tqdm.write(f"output_maps shape: {tuple(output_maps.shape)}")
-                        # 모델 출력에서 region/affinity map 분리
-                        # y의 형태가 (B, H_out, W_out, 2) 였다면:
-                        # pred_region_map_batch = output_maps[..., 0].permute(0,3,1,2) # (B,1,H,W) 필요시
-                        # pred_affinity_map_batch = output_maps[..., 1].permute(0,3,1,2)
-                        # 현재 모델 출력이 (B, 2, H/2, W/2)로 가정:
-                        # output_maps: (B, H, W, 2)
-                        output_maps = output_maps.permute(0, 3, 1, 2)  # → (B, 2, H, W)
-
-                        pred_region_map_batch = output_maps[:, 0:1]  # (B, 1, H, W)
-                        pred_affinity_map_batch = output_maps[:, 1:2]  # (B, 1, H, W)
-
-                        # 1) 학습 루프에서 손실 정의
-                        pos = region_targets.sum()
-                        neg = region_targets.numel() - pos
-                        w = neg / (pos + 1e-6)  # pos_weight
-
-                        loss_r = F.binary_cross_entropy_with_logits(
-                            pred_region_map_batch, region_targets,
-                            pos_weight=torch.tensor([w], device=model1.device))
-
-                        loss_a = F.binary_cross_entropy_with_logits(
-                            pred_affinity_map_batch, affinity_targets,
-                            pos_weight=torch.tensor([w], device=model1.device))
-                        total_batch_loss = loss_r + loss_a
-                        tqdm.write(
-                            f"pred region min/max: {pred_region_map_batch.min():.3f} / {pred_region_map_batch.max():.3f}")
-                        tqdm.write(f"GT   region min/max: {region_targets.min():.3f} / {region_targets.max():.3f}")
-
-                        total_batch_loss.backward()
-                        optimizer.step()
-
-                        epoch_loss_sum += total_batch_loss.item()
-                        batch_iterator.set_postfix(loss=f"{total_batch_loss.item():.4f}")
-
-                    avg_epoch_loss = epoch_loss_sum / len(train_loader)
+                    # 에폭 결과 출력
                     print(
-                        f"[Pipeline] Epoch {epoch+1}/{self.setting.epochs} - Model 1 Average Training Loss: {avg_epoch_loss:.4f}"
+                        f"[Pipeline] Epoch {epoch + 1}/{self.setting.epochs} - Model 1 Average Training Loss: {avg_epoch_loss:.4f}"
                     )
 
                     if (epoch + 1) % self.setting.ckpt_interval == 0:
                         model1.save_checkpoint(
                             model1_ckpt_path, epoch, optimizer.state_dict()
                         )
-
-                    if (epoch + 1) % self.setting.vis_interval == 0 and len(texted_images_for_model1) > 0:
-                        print(f"[Pipeline] Visualizing Model 1 (CRAFT) output for epoch {epoch + 1}")
-                        model1.eval()
-
-                        # 시각화할 샘플 가져오기 (MangaDataset1에서 직접)
-                        # Dataset의 __getitem__은 정규화된 이미지와 GT맵을 반환.
-                        # 시각화를 위해서는 정규화 전 이미지와 GT맵이 필요.
-                        # TextedImage 객체를 직접 사용하는 것이 좋음.
-                        vis_idx = 0  # 첫 번째 샘플 시각화
-                        vis_texted_image_obj = texted_images_for_model1[vis_idx]
-
-                        # 모델 입력 준비 (정규화 필요시 적용)
-                        img_for_pred_tensor = vis_texted_image_obj.timg.unsqueeze(0).to(model1.device)
-                        # if train_dataset.transforms: # Dataset에 transform이 있다면 동일하게 적용
-                        #    img_for_pred_tensor = train_dataset.transforms(img_for_pred_tensor)
-
-                        with torch.no_grad():
-                            # 모델 예측 (튜플 반환: (score_maps_permuted, features) 또는 (score_maps_B2HW, features) )
-                            pred_maps_model_output, _ = model1(img_for_pred_tensor)
-
-                            # 모델 출력 형식에 따라 pred_region_vis, pred_affinity_vis 추출
-                            # 예: pred_maps_model_output가 (1, 2, H/2, W/2) 라면
-                            maps_CHW = pred_maps_model_output.permute(0, 3, 1, 2)  # -> (B, 2, H, W)
-                            pred_region_vis = torch.sigmoid(maps_CHW[0, 0]).cpu().numpy()
-                            pred_affinity_vis = torch.sigmoid(maps_CHW[0, 1]).cpu().numpy()
-                            tqdm.write(f"pred_region_vis shape:{tuple(pred_region_vis.shape)}")
-                            tqdm.write(f"pred_affinity_vis shape:{tuple(pred_affinity_vis.shape)}")
-                            # 예: pred_maps_model_output가 (1, H/2, W/2, 2) 라면
-                            # pred_region_vis = pred_maps_model_output[0, :, :, 0].cpu().numpy()
-                            # pred_affinity_vis = pred_maps_model_output[0, :, :, 1].cpu().numpy()
-
-                        # 시각화 함수 호출 (이전 답변에서 제안한 visualize_texted_image_data 사용)
-                        # 이 함수는 TextedImage 객체를 받으므로, 예측값을 여기에 임시로 넣어주거나,
-                        # 별도의 시각화 함수를 만들어 GT와 Prediction을 함께 그림.
-
-                        # visualize_texted_image_data 함수를 확장하여 예측값도 함께 표시하도록 수정 필요.
-                        # 또는, 간단히 GT와 Prediction을 나란히 표시.
-
-                        # 임시 TextedImage 객체 생성 (시각화용)
-                        # GT 맵은 texted_images_for_model1[vis_idx]에 이미 있어야 함.
-                        gt_region_map_vis = vis_texted_image_obj.region_score_map.squeeze().cpu().numpy() \
-                            if vis_texted_image_obj.region_score_map is not None else None
-                        gt_affinity_map_vis = vis_texted_image_obj.affinity_score_map.squeeze().cpu().numpy() \
-                            if vis_texted_image_obj.affinity_score_map is not None else None
-
-                        # Matplotlib으로 GT와 Prediction 나란히 그리기
-                        num_cols_vis = 2  # GT Region, Pred Region (Affinity도 추가 가능)
-                        if gt_affinity_map_vis is not None and pred_affinity_vis is not None:
-                            num_cols_vis += 2
-
-                        fig_vis, axes_vis = plt.subplots(1, num_cols_vis, figsize=(5 * num_cols_vis, 5))
-                        fig_vis.suptitle(f"Epoch {epoch + 1} - Sample {vis_idx}", fontsize=16)
-
-                        current_ax_idx = 0
-                        if gt_region_map_vis is not None:
-                            axes_vis[current_ax_idx].imshow(gt_region_map_vis, cmap='jet', vmin=0, vmax=1)
-                            axes_vis[current_ax_idx].set_title("GT Region")
-                            axes_vis[current_ax_idx].axis('off');
-                            current_ax_idx += 1
-
-                        axes_vis[current_ax_idx].imshow(pred_region_vis, cmap='jet', vmin=0, vmax=1)
-                        axes_vis[current_ax_idx].set_title("Pred Region")
-                        axes_vis[current_ax_idx].axis('off');
-                        current_ax_idx += 1
-
-                        if gt_affinity_map_vis is not None:
-                            axes_vis[current_ax_idx].imshow(gt_affinity_map_vis, cmap='jet', vmin=0, vmax=1)
-                            axes_vis[current_ax_idx].set_title("GT Affinity")
-                            axes_vis[current_ax_idx].axis('off');
-                            current_ax_idx += 1
-
-                        if pred_affinity_vis is not None:
-                            axes_vis[current_ax_idx].imshow(pred_affinity_vis, cmap='jet', vmin=0, vmax=1)
-                            axes_vis[current_ax_idx].set_title("Pred Affinity")
-                            axes_vis[current_ax_idx].axis('off');
-                            current_ax_idx += 1
-
-                        # 원본 이미지 및 문자 폴리곤도 함께 표시하면 좋음 (이전 visualize_texted_image_data 참고)
-                        # (예: 첫 번째 행에 이미지, 두 번째 행에 스코어 맵)
-
-                        vis_output_filename_train = f"model1_train_epoch{epoch + 1}_sample{vis_idx}_pred_gt.png"
-                        save_path_train_vis = os.path.join(self.setting.output_img_dir, vis_output_filename_train)
-                        plt.tight_layout(rect=[0, 0, 1, 0.96])  # suptitle 공간 확보
-                        plt.savefig(save_path_train_vis)
-                        plt.close(fig_vis)
-                        print(f"[Pipeline] Saved Model 1 training visualization to {save_path_train_vis}")
-
-                        model1.train()  # Set back to train mode
-                    # -------- 수정 끝 (학습 중 시각화 부분) --------
 
             elif self.setting.model1_mode == ModelMode.INFERENCE:
                 print("[Pipeline] Running Model 1 Inference")

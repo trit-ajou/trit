@@ -23,7 +23,7 @@ from . import craft_utils, imgproc
 
 
 def test_net(net, image, cuda, poly, text_threshold=0.7, link_threshold=0.4, low_text=0.4, canvas_size = 1280, mag_ratio = 1.5):
-    t0 = time.time()
+    t0w = time.time()
 
     # resize
     img_resized, target_ratio, size_heatmap = imgproc.resize_aspect_ratio(image, canvas_size, interpolation=cv2.INTER_LINEAR, mag_ratio=mag_ratio)
