@@ -129,6 +129,12 @@ class Model3_pretrained(nn.Module):
         print("[Model3-pretrained] Lora 학습 시작")
         # 최고 검증 손실 추적
         best_val_loss = float('inf')
+
+        # 손실 기록을 위한 리스트 추가
+        train_losses = []
+        val_losses = []
+        epochs_recorded = []
+
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
         scaler = GradScaler(enabled=(weight_dtype == torch.float16))
@@ -276,7 +282,11 @@ class Model3_pretrained(nn.Module):
             if epoch > 0:
                 avg_train_loss = epoch_loss / epoch
                 print(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}")
-                
+
+                # 손실 기록 저장
+                train_losses.append(avg_train_loss)
+                epochs_recorded.append(epoch + 1)
+
                 # 검증 손실 계산 (validation set이 있을 때만)
                 if val_loader is not None:
                     try:
@@ -291,7 +301,14 @@ class Model3_pretrained(nn.Module):
                 else:
                     val_loss = float('inf')  # validation set이 없으면 무한대로 설정
                 print(f"Epoch {epoch+1}/{num_epochs} - Validation Loss: {val_loss:.4f}")
-                
+
+                # validation 손실도 기록
+                val_losses.append(val_loss)
+
+                # 실시간 그래프 업데이트 (3 에포크마다)
+                if epoch % 3 == 0 or epoch == num_epochs - 1:
+                    self._update_loss_plot_realtime(train_losses, val_losses, epochs_recorded, lora_weights_path, epoch + 1)
+
                 # 에폭마다 모델 저장
                 # 검증 손실이 개선되면 best_model 저장
                 if val_loss < best_val_loss:
@@ -302,6 +319,10 @@ class Model3_pretrained(nn.Module):
                     os.makedirs(lora_weights_path, exist_ok=True)
                     unet_lora.save_pretrained(lora_weights_path)
                     print("모델 저장 완료.")
+
+        # 훈련 완료 후 최종 손실 기록 저장 및 시각화
+        print("\n📊 Saving training results and generating final plots...")
+        self._save_and_visualize_losses(train_losses, val_losses, epochs_recorded, lora_weights_path)
 
     def _encode_prompt_sd2(self, prompt, negative_prompt, tokenizer, text_encoder, device, batch_size=1):
         """
@@ -339,6 +360,162 @@ class Model3_pretrained(nn.Module):
             negative_prompt_embeds = text_encoder(uncond_input_ids)[0]  # [B, S, D]
 
         return prompt_embeds, negative_prompt_embeds
+
+    def _update_loss_plot_realtime(self, train_losses, val_losses, epochs, save_dir, current_epoch):
+        """
+        실시간으로 손실 그래프를 업데이트하는 메서드
+        """
+        import matplotlib.pyplot as plt
+
+        try:
+            plt.figure(figsize=(12, 8))
+
+            # 서브플롯 1: 일반 스케일
+            plt.subplot(2, 1, 1)
+            if train_losses:
+                plt.plot(epochs[:len(train_losses)], train_losses, 'b-', label='Training Loss', linewidth=2, marker='o', markersize=4)
+            if val_losses:
+                plt.plot(epochs[:len(val_losses)], val_losses, 'r-', label='Validation Loss', linewidth=2, marker='s', markersize=4)
+
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.title(f'Training Progress - Epoch {current_epoch}/{len(epochs) + (5 - len(epochs) % 5)}')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            # 최근 손실 값 표시
+            if train_losses:
+                plt.text(0.02, 0.98, f'Latest Train Loss: {train_losses[-1]:.4f}',
+                        transform=plt.gca().transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+            if val_losses:
+                plt.text(0.02, 0.88, f'Latest Val Loss: {val_losses[-1]:.4f}',
+                        transform=plt.gca().transAxes, verticalalignment='top',
+                        bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
+
+            # 서브플롯 2: 로그 스케일
+            plt.subplot(2, 1, 2)
+            if train_losses:
+                plt.plot(epochs[:len(train_losses)], train_losses, 'b-', label='Training Loss (Log)', linewidth=2, marker='o', markersize=4)
+            if val_losses:
+                plt.plot(epochs[:len(val_losses)], val_losses, 'r-', label='Validation Loss (Log)', linewidth=2, marker='s', markersize=4)
+
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss (Log Scale)')
+            plt.title('Training Progress (Log Scale)')
+            plt.yscale('log')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            plt.tight_layout()
+
+            # 실시간 그래프 저장
+            plot_path = os.path.join(save_dir, f"loss_progress_epoch_{current_epoch}.png")
+            plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            print(f"📈 Real-time plot updated: {plot_path}")
+
+        except Exception as e:
+            print(f"Error updating real-time plot: {e}")
+
+    def _save_and_visualize_losses(self, train_losses, val_losses, epochs, save_dir):
+        """
+        훈련 완료 후 최종 손실 데이터 저장 및 시각화
+        """
+        import matplotlib.pyplot as plt
+        import json
+
+        try:
+            # 1. 손실 데이터를 JSON으로 저장
+            loss_data = {
+                "epochs": epochs,
+                "train_losses": train_losses,
+                "val_losses": val_losses,
+                "total_epochs": len(epochs),
+                "final_train_loss": train_losses[-1] if train_losses else None,
+                "final_val_loss": val_losses[-1] if val_losses else None,
+                "best_val_loss": min(val_losses) if val_losses else None,
+                "best_val_epoch": epochs[val_losses.index(min(val_losses))] if val_losses else None
+            }
+
+            loss_file_path = os.path.join(save_dir, "training_losses.json")
+            with open(loss_file_path, 'w') as f:
+                json.dump(loss_data, f, indent=2)
+            print(f"📊 Loss data saved to {loss_file_path}")
+
+            # 2. 최종 손실 그래프 생성
+            plt.figure(figsize=(15, 10))
+
+            # 서브플롯 1: 전체 손실 비교
+            plt.subplot(2, 2, 1)
+            if train_losses:
+                plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2, marker='o', markersize=3)
+            if val_losses:
+                plt.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2, marker='s', markersize=3)
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.title('Training and Validation Loss')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            # 서브플롯 2: 로그 스케일
+            plt.subplot(2, 2, 2)
+            if train_losses:
+                plt.plot(epochs, train_losses, 'b-', label='Training Loss', linewidth=2, marker='o', markersize=3)
+            if val_losses:
+                plt.plot(epochs, val_losses, 'r-', label='Validation Loss', linewidth=2, marker='s', markersize=3)
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss (Log Scale)')
+            plt.title('Loss (Log Scale)')
+            plt.yscale('log')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+
+            # 서브플롯 3: 손실 차이
+            plt.subplot(2, 2, 3)
+            if train_losses and val_losses and len(train_losses) == len(val_losses):
+                loss_diff = [v - t for t, v in zip(train_losses, val_losses)]
+                plt.plot(epochs, loss_diff, 'g-', label='Val - Train Loss', linewidth=2, marker='^', markersize=3)
+                plt.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+                plt.xlabel('Epoch')
+                plt.ylabel('Loss Difference')
+                plt.title('Validation - Training Loss')
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+
+            # 서브플롯 4: 통계 정보
+            plt.subplot(2, 2, 4)
+            plt.axis('off')
+            stats_text = f"""
+Training Summary:
+• Total Epochs: {len(epochs)}
+• Final Train Loss: {train_losses[-1]:.4f if train_losses else 'N/A'}
+• Final Val Loss: {val_losses[-1]:.4f if val_losses else 'N/A'}
+• Best Val Loss: {min(val_losses):.4f if val_losses else 'N/A'}
+• Best Val Epoch: {epochs[val_losses.index(min(val_losses))] if val_losses else 'N/A'}
+• Loss Reduction: {((train_losses[0] - train_losses[-1]) / train_losses[0] * 100):.1f}% if train_losses and len(train_losses) > 1 else 'N/A'
+            """
+            plt.text(0.1, 0.9, stats_text, transform=plt.gca().transAxes,
+                    verticalalignment='top', fontsize=10, fontfamily='monospace',
+                    bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+
+            plt.tight_layout()
+
+            # 최종 그래프 저장
+            final_plot_path = os.path.join(save_dir, "final_training_analysis.png")
+            plt.savefig(final_plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            print(f"📈 Final training analysis saved to {final_plot_path}")
+
+            # 3. 요약 통계 저장
+            summary_file_path = os.path.join(save_dir, "training_summary.json")
+            with open(summary_file_path, 'w') as f:
+                json.dump(loss_data, f, indent=2)
+            print(f"📋 Training summary saved to {summary_file_path}")
+
+        except Exception as e:
+            print(f"Error saving final visualization: {e}")
 
     def _calculate_validation_loss_sd2(self, unet_lora, vae, text_encoder, tokenizer, noise_scheduler,
                              val_loader, weight_dtype):
