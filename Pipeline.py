@@ -1,5 +1,7 @@
 from peft import LoraConfig
 import torch
+import time
+import os
 from tqdm import tqdm
 from copy import copy
 from torch.utils.data import DataLoader, random_split
@@ -19,15 +21,27 @@ class PipelineMgr:
     def __init__(self, setting: PipelineSetting, policy: ImagePolicy):
         self.setting = setting
         self.imageloader = ImageLoader(setting, policy)
+        os.makedirs(self.setting.ckpt_dir, exist_ok=True)
+        os.makedirs(self.setting.font_dir, exist_ok=True)
+        os.makedirs(self.setting.clear_img_dir, exist_ok=True)
+        os.makedirs(self.setting.output_img_dir, exist_ok=True)
 
     def run(self):
         ################################################### Step 1: Load Images ##############################################
         print("[Pipeline] Loading Images")
-        self.texted_images: list[TextedImage] = self.imageloader.load_images(
-            self.setting.num_images,
-            self.setting.clear_img_dir,
+        # 이미지로더 사용 방법 예시(NEW)
+        self.imageloader.start_loading_async(
+            num_images=self.setting.num_images,
+            dir=self.setting.clear_img_dir,
             max_text_size=self.setting.model3_input_size,
         )
+        # 할일 하기
+        time.sleep(5)
+        # 로딩된 이미지 불러오기(덜끝났으면 끝날 때까지 대기)
+        self.texted_images = self.imageloader.get_loaded_images()
+        # 프로그램 종료 시
+        self.imageloader.shutdown()
+
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
         for texted_image in self.texted_images:

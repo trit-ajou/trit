@@ -3,10 +3,12 @@ import random
 import numpy as np
 import torch
 import torchvision.transforms.functional as VTF
+import threading
+import time
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from typing import List, Tuple, Optional, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-import multiprocessing
 
 from .Utils import BBox, Lang, UNICODE_RANGES
 from .TextedImage import TextedImage
@@ -31,8 +33,67 @@ class ImageLoader:
             raise ValueError("[ImageLoader] 폰트를 추가해라 휴먼")
         # font cache 정의: key=(path, size)
         self.font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
+        # 멀티스레딩 관련
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.future = None
+        self.total_tasks = 0
+        self.completed_tasks = 0
+        self.lock = threading.Lock()
 
-    def load_images(
+    def start_loading_async(
+        self, num_images: int, dir: str, max_text_size: tuple[int, int]
+    ):
+        if self.future and not self.future.done():
+            raise RuntimeError("[ImageLoader] 이미 진행 중인 로딩 작업이 있습니다.")
+        print("[ImageLoader] 이미지 로딩 작업을 시작합니다.")
+        self.future = self.executor.submit(
+            self._load_images, num_images, dir, max_text_size
+        )
+
+    def get_loaded_images(self) -> List[TextedImage]:
+        if not self.future:
+            raise ValueError("[ImageLoader] 오류: 시작된 로딩 작업이 없습니다.")
+        # 작업이 이미 완료되었다면 바로 결과 반환
+        if self.future.done():
+            try:
+                return self.future.result()
+            except Exception as e:
+                raise ValueError(f"[ImageLoader] 이미지 로딩 중 오류 발생: {e}")
+        # 작업이 진행 중이라면 tqdm 사용하여 대기
+        pbar = None
+        try:
+            while not self.future.done():
+                # pbar 생성
+                if pbar is None:
+                    with self.lock:
+                        if self.total_tasks > 0:
+                            pbar = tqdm(
+                                total=self.total_tasks,
+                                desc="이미지 렌더링 중",
+                                leave=False,
+                            )
+                            pbar.update(self.completed_tasks)
+                            last_completed = self.completed_tasks
+                # pbar 진행률 업데이트
+                if pbar:
+                    current_completed = self.completed_tasks
+                    update_val = current_completed - last_completed
+                    if update_val > 0:
+                        pbar.update(update_val)
+                        last_completed = current_completed
+                time.sleep(1)
+        except Exception as e:
+            raise ValueError(f"[ImageLoader] 이미지 로딩 중 오류 발생: {e}")
+        # 작업 끝
+        if pbar:
+            pbar.close()
+        return self.future.result()
+
+    def shutdown(self):
+        """진행 중인 작업을 멈추고 executer 안전하게 종료."""
+        self.executor.shutdown()
+
+    def _load_images(
         self, num_images: int, dir: str, max_text_size: tuple[int, int]
     ) -> List[TextedImage]:
         clear_pils: list[Image.Image] = []
@@ -58,18 +119,24 @@ class ImageLoader:
             )
             for noise_img in noise_imgs:
                 clear_pils.append(Image.fromarray(noise_img, "RGB"))
-        # apply_async 사용해서 병렬로 TextedImage 생성
+        # 작업 시작 전 총 작업량 초기화
+        with self.lock:
+            self.total_tasks = len(clear_pils)
+            self.completed_tasks = 0
+        # 병렬로 TextedImage 생성
         print(
             f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers"
         )
         texted_images = []
-        with multiprocessing.Pool(self.setting.num_workers) as pool:
-            results = [
-                pool.apply_async(self.pil_to_texted_image, (clear_pil, max_text_size))
+        with ThreadPoolExecutor(self.setting.num_workers) as pool:
+            futures = [
+                pool.submit(self.pil_to_texted_image, clear_pil, max_text_size)
                 for clear_pil in clear_pils
             ]
-            for result in tqdm(results, total=len(results), leave=False):
-                texted_images.append(result.get())
+            for future in as_completed(futures):
+                texted_images.append(future.result())
+                with self.lock:
+                    self.completed_tasks += 1
         return texted_images
 
     def pil_to_texted_image(self, pil: Image.Image, max_text_size: tuple[int, int]):

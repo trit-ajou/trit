@@ -10,7 +10,7 @@ class PipelineSetting:
     device = torch.device("cpu")
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # 모델 돌릴 땐 GPU로 바꾸쇼
     use_amp = True
-    num_workers = 1
+    num_workers = 4  # for imageloader
 
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
@@ -19,11 +19,11 @@ class PipelineSetting:
     output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
     ckpt_dir = f"{_script_dir}/datas/checkpoints"
 
-    model1_input_size = (2048, 2560)  # 낮은 해상도에선 멀티프로세싱 효과 못 볼수 있음
+    model1_input_size = (1700, 2400)
     model2_input_size = (256, 256)
     model3_input_size = (512, 512)
 
-    num_images = 128
+    num_images = 20
     use_noise = False
     margin = 4
     max_objects = 1024
@@ -55,8 +55,8 @@ class ImagePolicy:
     num_texts: tuple[int, int] = (1, 3)
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
-    # 텍스트 높이를 이미지 높이에 대한 비율로 설정 (예: 이미지 높이의 3% ~ 10%)
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05) # 0.05로 하면 zero division error 안 뜸 
+    # 텍스트 높이를 이미지 높이에 대한 비율로 설정
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.015)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률
