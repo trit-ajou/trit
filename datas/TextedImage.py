@@ -84,7 +84,6 @@ class TextedImage:
             return
 
         expanded_bboxes = [bbox._safe_expand(margin, self.img_size) for bbox in self.bboxes]
-
         new_bboxes = []
         merged_indices = set()
 
@@ -203,15 +202,9 @@ class TextedImage:
         pad_top = (TARGET_H - new_h) // 2
         pad_bottom = TARGET_H - new_h - pad_top
 
-        self.orig = VTF.pad(
-            self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1
-        )
-        self.timg = VTF.pad(
-            self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1
-        )
-        self.mask = VTF.pad(
-            self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0
-        )
+        self.orig = VTF.pad(self.orig, (pad_left, pad_top, pad_right, pad_bottom), fill=1)
+        self.timg = VTF.pad(self.timg, (pad_left, pad_top, pad_right, pad_bottom), fill=1)
+        self.mask = VTF.pad(self.mask, (pad_left, pad_top, pad_right, pad_bottom), fill=0)
         # resize bboxes
         new_bboxes: list[BBox] = []
 
@@ -302,10 +295,21 @@ class TextedImage:
     def _to_pil(self):
         orig = self.orig.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
         timg = self.timg.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
-        mask = self.mask.detach().cpu().mul(255).byte().permute(1, 2, 0).numpy()
+
+        # Handle mask dimensions properly
+        mask_tensor = self.mask.detach().cpu().mul(255).byte()
+        if mask_tensor.dim() == 3:
+            # If 3D (1, H, W), squeeze to 2D
+            mask = mask_tensor.squeeze(0).numpy()
+        elif mask_tensor.dim() == 2:
+            # If already 2D (H, W), use as-is
+            mask = mask_tensor.numpy()
+        else:
+            raise ValueError(f"Unexpected mask dimensions: {mask_tensor.shape}")
+
         orig = Image.fromarray(orig, "RGB")
         timg = Image.fromarray(timg, "RGB")
-        mask = Image.fromarray(mask.squeeze(), "L")
+        mask = Image.fromarray(mask, "L")
         return orig, timg, mask
 
     def visualize(self, dir=".", filename="test.png"):

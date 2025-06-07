@@ -87,9 +87,7 @@ class BBox(tuple):
         )
 
     def _unsafe_expand(self, margin: int) -> "BBox":
-        return BBox(
-            self.x1 - margin, self.y1 - margin, self.x2 + margin, self.y2 + margin
-        )
+        return BBox(self.x1 - margin, self.y1 - margin, self.x2 + margin, self.y2 + margin)
 
     def _safe_expand(self, margin: int, img_size: tuple[int, int]) -> "BBox":
         h, w = img_size
@@ -100,12 +98,7 @@ class BBox(tuple):
         return BBox(x1, y1, x2, y2)
 
     def intersects(self, other: "BBox") -> bool:
-        return not (
-            self.x2 < other.x1
-            or self.x1 > other.x2
-            or self.y2 < other.y1
-            or self.y1 > other.y2
-        )
+        return not (self.x2 < other.x1 or self.x1 > other.x2 or self.y2 < other.y1 or self.y1 > other.y2)
 
     def union(self, other: "BBox") -> "BBox":
         x1 = min(self.x1, other.x1)
@@ -115,6 +108,4 @@ class BBox(tuple):
         return BBox(x1, y1, x2, y2)
 
     def coord_trans(self, coord_x: int, coord_y: int) -> "BBox":
-        return BBox(
-            self.x1 - coord_x, self.y1 - coord_y, self.x2 - coord_x, self.y2 - coord_y
-        )
+        return BBox(self.x1 - coord_x, self.y1 - coord_y, self.x2 - coord_x, self.y2 - coord_y)

@@ -112,9 +112,7 @@ class ImageLoader:
         if num_noise_imgs > 0:
 
             h, w = self.setting.model1_input_size
-            noise_imgs = np.random.randint(
-                0, 256, (num_images, h, w, 3), dtype=np.uint8
-            )
+            noise_imgs = np.random.randint(0, 256, (num_images, h, w, 3), dtype=np.uint8)
             for noise_img in noise_imgs:
                 clear_pils.append(Image.fromarray(noise_img, "RGB"))
         # 작업 시작 전 총 작업량 초기화
@@ -122,9 +120,7 @@ class ImageLoader:
             self.total_tasks = len(clear_pils)
             self.completed_tasks = 0
         # 병렬로 TextedImage 생성
-        print(
-            f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers"
-        )
+        print(f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers")
         texted_images = []
         with ThreadPoolExecutor(self.setting.num_workers) as pool:
             futures = [
@@ -135,6 +131,11 @@ class ImageLoader:
                 texted_images.append(future.result())
                 with self.lock:
                     self.completed_tasks += 1
+        # apply_async 사용해서 병렬로 TextedImage 생성
+        # print(f"[ImageLoader] Redering TextedImages with {self.setting.num_workers} workers")
+        # texted_images = []
+        # for clear_pil in tqdm(clear_pils, total=len(clear_pils), leave=False):
+        #     texted_images.append(self.pil_to_texted_image(clear_pil, max_text_size))
         return texted_images
     def pil_to_texted_image(
             self,
@@ -835,12 +836,8 @@ class ImageLoader:
         # 그림자 설정
         shadow_params = None
         if random.random() < self.policy.shadow_prob or policy_is_sfx:
-            s_off_x_r = random.uniform(
-                *self.policy.shadow_offset_x_ratio_to_font_size_range
-            )
-            s_off_y_r = random.uniform(
-                *self.policy.shadow_offset_y_ratio_to_font_size_range
-            )
+            s_off_x_r = random.uniform(*self.policy.shadow_offset_x_ratio_to_font_size_range)
+            s_off_y_r = random.uniform(*self.policy.shadow_offset_y_ratio_to_font_size_range)
             s_blur = random.randint(*self.policy.shadow_blur_radius_range)
             s_color = self._get_random_rgba()
             if policy_is_sfx:
@@ -861,10 +858,7 @@ class ImageLoader:
             )
         # 텍스트 정렬 설정
         text_align = random.choice(self.policy.text_align_options)
-        line_spacing = int(
-            font.size
-            * (random.uniform(*self.policy.line_spacing_ratio_to_font_size_range) - 1.0)
-        )
+        line_spacing = int(font.size * (random.uniform(*self.policy.line_spacing_ratio_to_font_size_range) - 1.0))
 
         _draw_dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
         try:
@@ -930,9 +924,7 @@ class ImageLoader:
                 align=text_align,
             )
             if s_blur_radius > 0:
-                shadow_layer = shadow_layer.filter(
-                    ImageFilter.GaussianBlur(s_blur_radius)
-                )
+                shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(s_blur_radius))
             text_layer.alpha_composite(shadow_layer)
 
         draw.text(
@@ -982,10 +974,7 @@ class ImageLoader:
                     resample=Image.Resampling.BICUBIC,
                 )
 
-        if (
-            random.random() < self.policy.perspective_transform_enabled_prob
-            or policy_is_sfx
-        ):
+        if random.random() < self.policy.perspective_transform_enabled_prob or policy_is_sfx:
             current_layer_width, current_layer_height = final_transformed_layer.size
             perspective_coeffs = self._get_perspective_coeffs_numpy(
                 current_layer_width,
