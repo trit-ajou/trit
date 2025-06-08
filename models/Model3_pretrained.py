@@ -192,18 +192,19 @@ class Model3_pretrained(nn.Module):
                 # 메모리 정리
                 torch.cuda.empty_cache()
                 
-                # VAE 입력은 float16 img.orig는 [0,1] 
+                # 모든 입력 데이터를 fp16으로 통일
                 original_pixel_values_batch = torch.stack(
                     [img.orig for img in batch_images]
-                ).to(self.device, dtype=torch.float32) 
+                ).to(self.device, dtype=weight_dtype)  # fp16으로 변경
 
                 mask_pixel_values_batch = torch.stack(
                     [img.mask for img in batch_images]
-                ).to(self.device, dtype=weight_dtype)   
-                
+                ).to(self.device, dtype=weight_dtype)
+
                 with torch.no_grad():
-                    # VAE 인코딩
+                    # VAE 인코딩 - fp16으로 설정
                     vae.to(self.device)
+                    vae = vae.half()  # VAE를 fp16으로 설정
                     
                     
                     target_latents_batch = vae.encode(original_pixel_values_batch).latent_dist.sample() * vae.config.scaling_factor
@@ -216,16 +217,17 @@ class Model3_pretrained(nn.Module):
                     ) # [B, 1, H_lat, W_lat]
                     
                       
-                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용
+                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용 (fp16으로 설정)
                     print("[Model3-pretrained TRAIN] 텍스트 임베딩 생성 중 ...")
                     text_encoder.to(self.device)
+                    text_encoder = text_encoder.half()  # Text Encoder를 fp16으로 설정
 
                     prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
                         prompt, negative_prompt, tokenizer, text_encoder, self.device, len(batch_images)
                     )
 
-                    # 임베딩 준비 - CFG를 위해 negative와 positive 결합
-                    prompt_embeds_full = torch.cat([negative_prompt_embeds.to(weight_dtype), prompt_embeds.to(weight_dtype)], dim=0)
+                    # 임베딩 준비 - CFG를 위해 negative와 positive 결합 (이미 fp16이므로 변환 불필요)
+                    prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
 
 
                 noise_batch = torch.randn_like(target_latents_batch)
@@ -385,10 +387,17 @@ class Model3_pretrained(nn.Module):
         )
         uncond_input_ids = uncond_input.input_ids.to(device)
 
-        # 텍스트 인코더 출력
+        # 텍스트 인코더 출력 (fp16으로 통일)
         with torch.no_grad():
             prompt_embeds = text_encoder(text_input_ids)[0]  # [B, S, D]
             negative_prompt_embeds = text_encoder(uncond_input_ids)[0]  # [B, S, D]
+
+            # 텍스트 인코더가 fp16이므로 출력도 자동으로 fp16이 됨
+            # 명시적으로 확인하고 변환 (안전장치)
+            if prompt_embeds.dtype != torch.float16:
+                prompt_embeds = prompt_embeds.half()
+            if negative_prompt_embeds.dtype != torch.float16:
+                negative_prompt_embeds = negative_prompt_embeds.half()
 
         return prompt_embeds, negative_prompt_embeds
 
@@ -507,12 +516,15 @@ Training Summary:
         """
         SD2용 인페인팅 학습 방식에 맞게 수정된 검증 손실 계산 함수
         """
-        # 검증에서도 훈련과 동일한 데이터 타입 사용 (fp16)
+        # 모든 컴포넌트를 fp16으로 통일
         original_dtype = next(unet_lora.parameters()).dtype
         print(f"[Validation] Model dtype: {original_dtype}")
 
-        # 모델을 평가 모드로 설정 (데이터 타입은 그대로 유지)
+        # 모든 모델을 fp16으로 설정하고 평가 모드로 전환
         unet_lora.eval()
+        vae = vae.half()  # VAE를 fp16으로
+        text_encoder = text_encoder.half()  # Text Encoder를 fp16으로
+        print(f"[Validation] All models set to fp16")
 
         device = self.device
         total_val_loss = 0.0
@@ -534,9 +546,10 @@ Training Summary:
                     print("===============================\n")
 
                 torch.cuda.empty_cache()
-                
-                original_pixel_values = torch.stack([img.orig for img in batch_images]).to(device, dtype=torch.float32)
-                mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)
+
+                # 모든 입력 데이터를 fp16으로 통일
+                original_pixel_values = torch.stack([img.orig for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
+                mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
                 
                 vae.to(device)
                 target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
@@ -559,14 +572,15 @@ Training Summary:
                 # 3. 모델의 실제 입력(initial_latents) 구성
                 initial_latents = target_latents * (1 - latent_mask) + noisy_target_latents * latent_mask
                 
-                # 텍스트 인코딩 (SD2용)
+                # 텍스트 인코딩 (SD2용) - fp16으로 통일
                 text_encoder.to(device)
 
                 prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
                     prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
                 )
 
-                prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)
+                # 텍스트 임베딩도 fp16으로 변환
+                prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)  # fp16
 
                 # SD2 Inpainting용 9채널 입력 구성 (validation에서도 동일)
                 # 마스크된 latent 생성
