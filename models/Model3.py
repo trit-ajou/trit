@@ -19,6 +19,7 @@ from diffusers.pipelines.stable_diffusion_3.pipeline_stable_diffusion_3 import S
 from peft import get_peft_model, LoraConfig, PeftModel
 from PIL import Image, ImageDraw
 import matplotlib.pyplot as plt
+
 def identity_collate(batch_images):
     return batch_images
 

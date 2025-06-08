@@ -51,7 +51,7 @@ class PipelineSetting:
     weight_decay = 3e-4
     train_valid_split = 0.2
     timg_generation = TimgGeneration.generate_only
-    lora_rank = 8
+    lora_rank = 256
     lora_alpha = 16
     lora_weight_path = "trit/models/lora"
     mask_weight = 2.0
@@ -71,7 +71,7 @@ class ImagePolicy:
     text_length_range: tuple[int, int] = (5, 20)
     # --- 폰트 크기 ---
     # 텍스트 높이를 이미지 높이에 대한 비율로 설정
-    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.015)
+    font_size_ratio_to_image_height_range: tuple[float, float] = (0.01, 0.05)
 
     # --- 여러 줄 텍스트 ---
     multiline_prob: float = 0.7  # 여러 줄 텍스트 사용 확률

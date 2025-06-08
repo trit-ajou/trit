@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import os
-from torch.amp.grad_scaler import GradScaler
 import numpy as np
 import gc
 from torch import autocast
@@ -89,14 +88,37 @@ class Model3_pretrained(nn.Module):
             print(f"Error setting up LoRA: {e}")
             return
         
-        # 데이터셋을 훈련/검증 세트로 분할
-        train_size = int(0.8 * len(texted_images_for_model3))
+        # 데이터셋을 훈련/검증 세트로 분할 (70:30 비율)
+        train_size = int(0.7 * len(texted_images_for_model3))
         val_size = len(texted_images_for_model3) - train_size
         
         full_train_set = MangaDataset3(texted_images_for_model3)
         
         train_sets, valid_sets = torch.utils.data.random_split(full_train_set, [train_size, val_size])
-        
+
+        # 디버깅: 분할된 데이터셋의 인덱스 확인
+        print(f"\n=== DATASET SPLIT DEBUG ===")
+        print(f"Total images: {len(texted_images_for_model3)}")
+        print(f"Train size: {train_size}, Val size: {val_size}")
+        print(f"Train indices (first 10): {list(train_sets.indices[:10])}")
+        print(f"Val indices (first 10): {list(valid_sets.indices[:10])}")
+
+        # 실제 이미지 식별자 확인
+        print("Train images (first 5):")
+        for i in range(min(5, len(train_sets.indices))):
+            idx = train_sets.indices[i]
+            img = texted_images_for_model3[idx]
+            identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+            print(f"  Train idx[{idx}]: {identifier}")
+
+        print("Val images (first 5):")
+        for i in range(min(5, len(valid_sets.indices))):
+            idx = valid_sets.indices[i]
+            img = texted_images_for_model3[idx]
+            identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+            print(f"  Val idx[{idx}]: {identifier}")
+        print("===========================\n")
+
         train_loader = torch.utils.data.DataLoader(
             train_sets,
             batch_size=batch_size,
@@ -135,9 +157,20 @@ class Model3_pretrained(nn.Module):
         val_losses = []
         epochs_recorded = []
 
+        # 모든 모델을 fp16으로 설정 (훈련 시작 전)
+        if weight_dtype == torch.float16:
+            unet_lora = unet_lora.half()
+            vae = vae.half()
+            text_encoder = text_encoder.half()
+
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
-        scaler = GradScaler(enabled=(weight_dtype == torch.float16))
+
+        # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
+        print(f"[Training Debug] Model dtypes at start:")
+        print(f"  UNet dtype: {next(unet_lora.parameters()).dtype}")
+        print(f"  weight_dtype setting: {weight_dtype}")
+        print(f"  Mixed precision enabled: {weight_dtype == torch.float16}")
         
         # 노이즈 스케줄러 설정
         noise_scheduler = DDIMScheduler(
@@ -152,22 +185,35 @@ class Model3_pretrained(nn.Module):
         for epoch in tqdm(range(num_epochs), desc="Epochs"):
             unet_lora.train()
             epoch_loss = 0.0
-            
+            num_train_batches = 0
+
+            step = 0
             for batch_images in tqdm(train_loader, desc="Training batches"):
+                # 디버깅: 첫 번째 에포크의 첫 번째 배치에서 파일명 출력
+                if step == 0 and epoch == 0:
+                    print("\n=== TRAINING BATCH DEBUG ===")
+                    print("First training batch images:")
+                    for i, img in enumerate(batch_images):
+                        # TextedImage 객체의 고유 식별자 출력 (가능한 속성들 시도)
+                        identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+                        print(f"  Train[{i}]: {identifier}")
+                    print("=============================\n")
+
+                step += 1
                 # 메모리 정리
                 torch.cuda.empty_cache()
                 
-                # VAE 입력은 float16 img.orig는 [0,1] 
+                # 모든 입력 데이터를 fp16으로 통일
                 original_pixel_values_batch = torch.stack(
                     [img.orig for img in batch_images]
-                ).to(self.device, dtype=torch.float32) 
+                ).to(self.device, dtype=weight_dtype)  # fp16으로 변경
 
                 mask_pixel_values_batch = torch.stack(
                     [img.mask for img in batch_images]
-                ).to(self.device, dtype=weight_dtype)   
-                
+                ).to(self.device, dtype=weight_dtype)
+
                 with torch.no_grad():
-                    # VAE 인코딩
+                    # VAE 인코딩 (이미 fp16으로 설정됨)
                     vae.to(self.device)
                     
                     
@@ -182,15 +228,14 @@ class Model3_pretrained(nn.Module):
                     
                       
                     # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용
-                    print("[Model3-pretrained TRAIN] 텍스트 임베딩 생성 중 ...")
                     text_encoder.to(self.device)
 
                     prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
                         prompt, negative_prompt, tokenizer, text_encoder, self.device, len(batch_images)
                     )
 
-                    # 임베딩 준비 - CFG를 위해 negative와 positive 결합
-                    prompt_embeds_full = torch.cat([negative_prompt_embeds.to(weight_dtype), prompt_embeds.to(weight_dtype)], dim=0)
+                    # 임베딩 준비 - CFG를 위해 negative와 positive 결합 (이미 fp16이므로 변환 불필요)
+                    prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
 
 
                 noise_batch = torch.randn_like(target_latents_batch)
@@ -204,7 +249,6 @@ class Model3_pretrained(nn.Module):
                     
                     
                 with autocast("cuda",dtype=weight_dtype):
-                    print("[Model3-pretrained TRAIN] 노이즈 예측 중 ...")
                     # SD2 Inpainting용 9채널 입력 구성
                     # [latent(4) + masked_latent(4) + mask(1)] = 9채널
 
@@ -257,34 +301,37 @@ class Model3_pretrained(nn.Module):
                 
                 
                 optimizer.zero_grad(set_to_none=True)
-            
-                scaler.scale(loss).backward() # 🚀 스케일된 손실로 역전파
 
-                # 🚀 그래디언트 클리핑 (옵티마이저 스텝 전, unscale 후)
-                scaler.unscale_(optimizer) # 옵티마이저에 연결된 파라미터들의 그래디언트를 원래 값으로 되돌림
+                # Adafactor는 자체 스케일링을 하므로 일반 역전파 사용
+                loss.backward()
+
+                # 그래디언트 클리핑 (Adafactor와 함께 사용)
                 torch.nn.utils.clip_grad_norm_(
                     [p for p in unet_lora.parameters() if p.requires_grad],
                     max_norm=self.model_config.get("max_grad_norm", 1.0)
                 )
-                
-                scaler.step(optimizer) # 🚀 옵티마이저 스텝 (스케일된 그래디언트 자동 처리)
-                scaler.update()        # 🚀 스케일러 업데이트 (다음 스텝을 위해 스케일 조정)
+
+                # 옵티마이저 스텝 (Adafactor가 자체적으로 스케일링 처리)
+                optimizer.step()
             
                 
                 # 손실 추적
                 epoch_loss += loss.detach().item()
-                
+                num_train_batches += 1
+
                 # 메모리 정리
                 del loss, noise_pred, latent_model_input, timesteps_input
                 torch.cuda.empty_cache()
-                
+
             # 에폭 종료 후 검증 손실 계산
             if epoch > 0:
-                avg_train_loss = epoch_loss / epoch
+                # 올바른 평균 계산: 총 손실을 배치 수로 나눔
+                avg_train_loss = epoch_loss / num_train_batches if num_train_batches > 0 else 0.0
+
                 print(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}")
 
                 # 손실 기록 저장
-                train_losses.append(avg_train_loss)
+                train_losses.append(avg_train_loss) 
                 epochs_recorded.append(epoch + 1)
 
                 # 검증 손실 계산 (validation set이 있을 때만)
@@ -350,10 +397,17 @@ class Model3_pretrained(nn.Module):
         )
         uncond_input_ids = uncond_input.input_ids.to(device)
 
-        # 텍스트 인코더 출력
+        # 텍스트 인코더 출력 (fp16으로 통일)
         with torch.no_grad():
             prompt_embeds = text_encoder(text_input_ids)[0]  # [B, S, D]
             negative_prompt_embeds = text_encoder(uncond_input_ids)[0]  # [B, S, D]
+
+            # 텍스트 인코더가 fp16이므로 출력도 자동으로 fp16이 됨
+            # 명시적으로 확인하고 변환 (안전장치)
+            if prompt_embeds.dtype != torch.float16:
+                prompt_embeds = prompt_embeds.half()
+            if negative_prompt_embeds.dtype != torch.float16:
+                negative_prompt_embeds = negative_prompt_embeds.half()
 
         return prompt_embeds, negative_prompt_embeds
 
@@ -472,13 +526,11 @@ Training Summary:
         """
         SD2용 인페인팅 학습 방식에 맞게 수정된 검증 손실 계산 함수
         """
-        # 데이터 타입 문제 해결을 위해 모델을 fp32로 임시 변환
-        original_dtype = next(unet_lora.parameters()).dtype
-        print(f"[Validation] Original model dtype: {original_dtype}")
-
-        # UNet을 fp32로 변환
-        unet_lora.float()
+        # 모든 모델을 fp16으로 설정하고 평가 모드로 전환
         unet_lora.eval()
+        unet_lora = unet_lora.half()  # UNet도 fp16으로 명시적 변환
+        vae = vae.half()  # VAE를 fp16으로
+        text_encoder = text_encoder.half()  # Text Encoder를 fp16으로
 
         device = self.device
         total_val_loss = 0.0
@@ -489,10 +541,21 @@ Training Summary:
         
         with torch.no_grad():
             for batch_images in val_loader:
+                # 디버깅: 첫 번째 검증 배치에서 파일명 출력
+                if num_val_batches == 0:
+                    print("\n=== VALIDATION BATCH DEBUG ===")
+                    print("First validation batch images:")
+                    for i, img in enumerate(batch_images):
+                        # TextedImage 객체의 고유 식별자 출력 (가능한 속성들 시도)
+                        identifier = getattr(img, 'filename', None) or getattr(img, 'path', None) or f"img_id_{id(img)}"
+                        print(f"  Val[{i}]: {identifier}")
+                    print("===============================\n")
+
                 torch.cuda.empty_cache()
-                
-                original_pixel_values = torch.stack([img.orig for img in batch_images]).to(device, dtype=torch.float32)
-                mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)
+
+                # 모든 입력 데이터를 fp16으로 통일
+                original_pixel_values = torch.stack([img.orig for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
+                mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
                 
                 vae.to(device)
                 target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
@@ -522,6 +585,7 @@ Training Summary:
                     prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
                 )
 
+                # 텍스트 임베딩 결합
                 prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)
 
                 # SD2 Inpainting용 9채널 입력 구성 (validation에서도 동일)
@@ -546,17 +610,17 @@ Training Summary:
                 latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                 timesteps_input = torch.cat([timesteps] * 2, dim=0)
 
-                # validation에서는 fp32 사용 (데이터 타입 일관성)
-                latent_model_input = latent_model_input.to(dtype=torch.float32)
-                timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
-                prompt_embeds_full = prompt_embeds_full.to(dtype=torch.float32)
+                # validation에서도 훈련과 동일한 fp16 사용
+                latent_model_input = latent_model_input.to(dtype=weight_dtype)
+                timesteps_input = timesteps_input.to(dtype=torch.long)
+                prompt_embeds_full = prompt_embeds_full.to(dtype=weight_dtype)
 
                 noise_pred = unet_lora(
                     sample=latent_model_input,
                     timestep=timesteps_input,
                     encoder_hidden_states=prompt_embeds_full,
                     return_dict=False
-                )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
+                )[0]
                 
                 _, noise_pred_text = noise_pred.chunk(2)
                 
@@ -579,12 +643,6 @@ Training Summary:
                 torch.cuda.empty_cache()
         
         avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
-
-        # 모델을 원래 데이터 타입으로 복원
-        if original_dtype == torch.float16:
-            unet_lora.half()
-        print(f"[Validation] Restored model dtype to: {next(unet_lora.parameters()).dtype}")
-
         return avg_val_loss
 
 

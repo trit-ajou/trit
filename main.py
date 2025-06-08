@@ -14,13 +14,13 @@ def parse_args():
     parser.add_argument(
         "--model1",
         type=str,
-        default="default",
+        default="skip",
         choices=["skip", "train", "inference"],
     )
     parser.add_argument(
         "--model2",
         type=str,
-        default="default",
+        default="skip",
         choices=["skip", "train", "inference"],
     )
     parser.add_argument(
@@ -30,8 +30,8 @@ def parse_args():
         choices=["skip", "train", "inference", "pretrained", "pretrained-train"],
     )
     parser.add_argument("--use_amp", action="store_true")
-    parser.add_argument("--num_workers", type=int, default=PipelineSetting.num_workers)
-    parser.add_argument("--num_images", type=int, default=PipelineSetting.num_images)
+    parser.add_argument("--num_workers", type=int, default=1)
+    parser.add_argument("--num_images", type=int, default=128)
     parser.add_argument("--use_noise", action="store_true")
     parser.add_argument("--margin", type=int, default=PipelineSetting.margin)
     parser.add_argument("--max_objects", type=int, default=PipelineSetting.max_objects)
