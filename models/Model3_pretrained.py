@@ -750,9 +750,23 @@ Training Summary:
                         print(f"Warning: Inpainting result has zero dimensions {result_tensor.shape}. Skipping patch {i+1}")
                         continue
 
-                    # 원본 텐서와 크기 맞추기
-                    if result_tensor.shape != current_patch.orig.shape:
-                        result_tensor = result_tensor.unsqueeze(0)
+                    # 원본 텐서와 크기 맞추기 - 정확한 크기 조정
+                    orig_shape = current_patch.orig.shape
+                    result_shape = result_tensor.shape
+
+                    print(f"[Model3] Original shape: {orig_shape}, Result shape: {result_shape}")
+
+                    # 크기가 다른 경우 원본 크기에 맞게 리사이즈
+                    if result_shape != orig_shape:
+                        # PIL로 변환하여 정확한 크기로 리사이즈
+                        result_pil = transforms.ToPILImage()(result_tensor.cpu())
+                        target_height, target_width = orig_shape[1], orig_shape[2]
+                        result_pil_resized = result_pil.resize((target_width, target_height), Image.LANCZOS)
+                        result_tensor = transforms.ToTensor()(result_pil_resized).to(
+                            device=current_patch.orig.device,
+                            dtype=current_patch.orig.dtype
+                        )
+                        print(f"[Model3] Resized result to match original: {result_tensor.shape}")
 
                     # 마스크 영역만 인페인팅 결과로 대체
                     mask_for_compositing = current_patch.mask.to(
