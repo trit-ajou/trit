@@ -63,60 +63,59 @@ class PipelineMgr:
     def run(self):
         ################################################### Step 1: Load Images ##############################################
         print("[Pipeline] Loading Images")
-#         # 이미지로더 사용 방법 예시(NEW)
-#         self.imageloader.start_loading_async(
-#             num_images=self.setting.num_images,
-#             dir=self.setting.clear_img_dir,
-#             max_text_size=self.setting.model3_input_size,
-#         )
-#         # 할일 하기
-#         time.sleep(5)
-#         # 로딩된 이미지 불러오기(덜끝났으면 끝날 때까지 대기)
-#         self.texted_images = self.imageloader.get_loaded_images()
-#         # 프로그램 종료 시
-#         self.imageloader.shutdown()
-
         if self.setting.timg_generation == TimgGeneration.generate_only:
             print("[Pipeline] Generating TextedImages")
-#             self.texted_images = self.imageloader.load_images(
-#                 self.setting.num_images, self.setting.clear_img_dir, self.setting.model3_input_size)
             self.imageloader.start_loading_async(
-						num_images=self.setting.num_images,
-						dir=self.setting.clear_img_dir,
-						max_text_size=self.setting.model3_input_size,
-					)
+                num_images=self.setting.num_images,
+                dir=self.setting.clear_img_dir,
+                max_text_size=self.setting.model3_input_size,
+            )
             self.texted_images = self.imageloader.get_loaded_images()
         elif self.setting.timg_generation == TimgGeneration.generate_save:
-            print("[Pipeline] Generating TextedImages and Save", self.setting.model3_input_size)
+            print(
+                "[Pipeline] Generating TextedImages and Save",
+                self.setting.model3_input_size,
+            )
             self.imageloader.start_loading_async(
-						num_images=self.setting.num_images,
-						dir=self.setting.clear_img_dir,
-						max_text_size=self.setting.model3_input_size,
-					)
+                num_images=self.setting.num_images,
+                dir=self.setting.clear_img_dir,
+                max_text_size=self.setting.model3_input_size,
+            )
             self.texted_images = self.imageloader.get_loaded_images()
             save_timgs(self.texted_images, self.setting.texted_img_dir)
-            num_viz_samples = getattr(self.setting, 'num_gt_viz_samples', 3)  # 설정 또는 기본값
+            num_viz_samples = getattr(
+                self.setting, "num_gt_viz_samples", 3
+            )  # 설정 또는 기본값
             num_viz_samples = min(num_viz_samples, len(self.texted_images))
 
             # 시각화 이미지 저장 디렉토리 (output_img_dir 내부에 생성)
-            viz_save_dir = os.path.join(self.setting.output_img_dir, "generated_score_map_samples")
+            viz_save_dir = os.path.join(
+                self.setting.output_img_dir, "generated_score_map_samples"
+            )
             for i in range(num_viz_samples):
                 if i < len(self.texted_images):  # 유효한 인덱스인지 확인
                     try:
                         # 위에서 정의한 visualize_craft_gt_components 함수 호출
-                        visualize_craft_gt_components(self.texted_images[i], i, viz_save_dir)
+                        visualize_craft_gt_components(
+                            self.texted_images[i], i, viz_save_dir
+                        )
                     except Exception as e:
-                        print(f"[Pipeline] Error during Score Map GT visualization for sample {i}: {e}")
+                        print(
+                            f"[Pipeline] Error during Score Map GT visualization for sample {i}: {e}"
+                        )
 
         elif self.setting.timg_generation == TimgGeneration.use_saved:
             print("[Pipeline] Loading Saved TextedImages")
-            self.texted_images = load_timgs(self.setting.texted_img_dir, self.setting.device, max_num = self.setting.num_images)
+            self.texted_images = load_timgs(
+                self.setting.texted_img_dir,
+                self.setting.device,
+                max_num=self.setting.num_images,
+            )
 
         elif self.setting.timg_generation == TimgGeneration.test:
-            '''
-                todo: 테스트 모드일때 test에서 이미지 로드하기
-            '''
-
+            """
+            todo: 테스트 모드일때 test에서 이미지 로드하기
+            """
 
         ################################################### Step 2: BBox Merge ###############################################
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
@@ -128,7 +127,6 @@ class PipelineMgr:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         print(f"[Pipeline] Using Device: {self.setting.device}")
-
 
         ################################################### Step 3: Model 1 ##################################################
         if self.setting.model1_mode != ModelMode.SKIP:
@@ -152,9 +150,9 @@ class PipelineMgr:
                     batch_size=self.setting.batch_size,
                     shuffle=True,
                     num_workers=self.setting.num_workers,
-                    collate_fn=None, # 또는 명시적으로 default_collate 사용 (보통 None이면 알아서 default_collate)
-                    persistent_workers= (self.setting.num_workers > 0),
-                    pin_memory = True,
+                    collate_fn=None,  # 또는 명시적으로 default_collate 사용 (보통 None이면 알아서 default_collate)
+                    persistent_workers=(self.setting.num_workers > 0),
+                    pin_memory=True,
                 )
 
                 optimizer = torch.optim.Adam(
@@ -213,8 +211,8 @@ class PipelineMgr:
                         cv_img,  # 변환한 이미지
                         cuda=(self.setting.device != "cpu"),
                         poly=False,
-
                     )
+
                     def to_rect(pts):
                         """
                         pts : np.ndarray([[x, y], ...])     ─ shape (4,2) or (N,2)
@@ -223,7 +221,9 @@ class PipelineMgr:
                         if pts is None or len(pts) == 0:
                             return None
                         xs, ys = pts[:, 0], pts[:, 1]
-                        return BBox(int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+                        return BBox(
+                            int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+                        )
 
                     rects = [to_rect(b) for b in bboxes]  # (4,2) → (x1,y1,x2,y2)
 
@@ -494,7 +494,6 @@ class PipelineMgr:
             )
             pass  # Placeholder, can be removed if no other common logic is needed.
 
-
         # for i, texted_image in enumerate(self.texted_images):
         #     texted_image.visualize(dir="trit/datas/images/output", filename=f"before_model3_images{i}.png")
 
@@ -502,53 +501,53 @@ class PipelineMgr:
         if self.setting.model3_mode != ModelMode.SKIP:
 
             model_config = {
-                    "model_id" : "stabilityai/stable-diffusion-3.5-medium",
-                    "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
-                    "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                    "lora_path" : self.setting.lora_weight_path,
-                    "epochs": self.setting.epochs,
-                    "batch_size": self.setting.batch_size,
-                    "inference_steps" : 10, # 기본값 : 10
-                    "input_size": self.setting.model3_input_size,
-                    "gradient_accumulation_steps": 8, # 조절 가능 기본값 : 4
-                    "guidance_scale": 7.5, #  기본값 : 7.5
-                    "lora_rank": self.setting.lora_rank, # LoRA rank 값 - 작은 값으로 조정
-                    "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값 - 보통 rank * 2가 적당
-                    "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
-                    "mask_weight": self.setting.mask_weight
-                    }
-            
-            model_pretrained_config = {
-                "model_id" : "stabilityai/stable-diffusion-2-inpainting",
-                "prompts" : "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
-                "negative_prompt" : "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
-                "lora_path" : self.setting.lora_weight_path,
+                "model_id": "stabilityai/stable-diffusion-3.5-medium",
+                "prompts": "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",
+                "negative_prompt": "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                "lora_path": self.setting.lora_weight_path,
                 "epochs": self.setting.epochs,
                 "batch_size": self.setting.batch_size,
-                "guidance_scale": 7.5, #  기본값 : 7.5
-                "inference_steps" : 28, # 기본값 : 28
+                "inference_steps": 10,  # 기본값 : 10
                 "input_size": self.setting.model3_input_size,
-                "lora_rank": self.setting.lora_rank, # LoRA rank 값
-                "lora_alpha": self.setting.lora_alpha, # LoRA alpha 값
-                "output_dir": "trit/datas/images/output", # 학습 중 시각화 결과 저장 경로
-                "mask_weight": self.setting.mask_weight
-                }
-            
+                "gradient_accumulation_steps": 8,  # 조절 가능 기본값 : 4
+                "guidance_scale": 7.5,  #  기본값 : 7.5
+                "lora_rank": self.setting.lora_rank,  # LoRA rank 값 - 작은 값으로 조정
+                "lora_alpha": self.setting.lora_alpha,  # LoRA alpha 값 - 보통 rank * 2가 적당
+                "output_dir": "trit/datas/images/output",  # 학습 중 시각화 결과 저장 경로
+                "mask_weight": self.setting.mask_weight,
+            }
+
+            model_pretrained_config = {
+                "model_id": "stabilityai/stable-diffusion-2-inpainting",
+                "prompts": "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
+                "negative_prompt": "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+                "lora_path": self.setting.lora_weight_path,
+                "epochs": self.setting.epochs,
+                "batch_size": self.setting.batch_size,
+                "guidance_scale": 7.5,  #  기본값 : 7.5
+                "inference_steps": 28,  # 기본값 : 28
+                "input_size": self.setting.model3_input_size,
+                "lora_rank": self.setting.lora_rank,  # LoRA rank 값
+                "lora_alpha": self.setting.lora_alpha,  # LoRA alpha 값
+                "output_dir": "trit/datas/images/output",  # 학습 중 시각화 결과 저장 경로
+                "mask_weight": self.setting.mask_weight,
+            }
+
             if self.setting.model3_mode == ModelMode.TRAIN:
 
                 # 학습시에만 사용용
                 texted_images_for_model3 = [
-                _splitted
-                for texted_image in self.texted_images
-                for _splitted in texted_image.split_center_crop(
-                    self.setting.model3_input_size
-                )]
-                
+                    _splitted
+                    for texted_image in self.texted_images
+                    for _splitted in texted_image.split_center_crop(
+                        self.setting.model3_input_size
+                    )
+                ]
+
                 print("[Pipeline] Training Model 3")
                 model3 = Model3(model_config)
                 print("[Pipeline] Calling model3.lora_train...")
                 model3.lora_train(texted_images_for_model3)
-
 
             elif self.setting.model3_mode == ModelMode.INFERENCE:
 
@@ -564,14 +563,16 @@ class PipelineMgr:
                         self.setting.model3_input_size
                     )
                 ]
-                
+
                 # 출력 디렉토리 생성
                 output_dir = "trit/datas/images/output"
                 os.makedirs(output_dir, exist_ok=True)
 
                 for i, texted_image in enumerate(texted_images_for_model3):
-                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
-                
+                    texted_image.visualize(
+                        dir=output_dir, filename=f"before_inpainting{i}.png"
+                    )
+
                 # 패치들을 인페인팅
                 inpainted_patches = model3.inference(texted_images_for_model3)
 
@@ -581,7 +582,9 @@ class PipelineMgr:
                 for texted_image in self.texted_images:
                     # 현재 이미지의 bbox 개수만큼 패치 가져오기
                     num_bboxes = len(texted_image.bboxes)
-                    current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
+                    current_patches = inpainted_patches[
+                        patch_idx : patch_idx + num_bboxes
+                    ]
 
                     # 패치들을 원본 이미지에 합성
                     texted_image.merge_cropped(current_patches)
@@ -592,7 +595,9 @@ class PipelineMgr:
                 output_dir = "trit/datas/images/output"
                 os.makedirs(output_dir, exist_ok=True)
                 for i, texted_image in enumerate(self.texted_images):
-                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
+                    texted_image.visualize(
+                        dir=output_dir, filename=f"final_inpainted_{i}.png"
+                    )
 
                 print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
 
@@ -601,11 +606,12 @@ class PipelineMgr:
 
                 # 학습시에만 사용
                 texted_images_for_model3 = [
-                _splitted
-                for texted_image in self.texted_images
-                for _splitted in texted_image.split_center_crop(
-                    self.setting.model3_input_size
-                )]
+                    _splitted
+                    for texted_image in self.texted_images
+                    for _splitted in texted_image.split_center_crop(
+                        self.setting.model3_input_size
+                    )
+                ]
 
                 print("[Pipeline] Training Model 3 Pretrained")
                 model3 = Model3_pretrained(model_pretrained_config)
@@ -614,9 +620,9 @@ class PipelineMgr:
 
             # 사전 훈련 모델 사용
             elif self.setting.model3_mode == ModelMode.PRETRAINED:
-                                
+
                 print("[Pipeline] Running Model 3 Pretrained Inference")
-                model3 = Model3_pretrained(model_pretrained_config)    
+                model3 = Model3_pretrained(model_pretrained_config)
 
                 # 각 원본 이미지에 대해 center crop으로 패치 생성
                 texted_images_for_model3 = [
@@ -632,8 +638,10 @@ class PipelineMgr:
                 os.makedirs(output_dir, exist_ok=True)
 
                 for i, texted_image in enumerate(texted_images_for_model3):
-                    texted_image.visualize(dir=output_dir, filename=f"before_inpainting{i}.png")
-                
+                    texted_image.visualize(
+                        dir=output_dir, filename=f"before_inpainting{i}.png"
+                    )
+
                 # 패치들을 인페인팅
                 inpainted_patches = model3.inference(texted_images_for_model3)
 
@@ -643,7 +651,9 @@ class PipelineMgr:
                 for texted_image in self.texted_images:
                     # 현재 이미지의 bbox 개수만큼 패치 가져오기
                     num_bboxes = len(texted_image.bboxes)
-                    current_patches = inpainted_patches[patch_idx:patch_idx + num_bboxes]
+                    current_patches = inpainted_patches[
+                        patch_idx : patch_idx + num_bboxes
+                    ]
 
                     # 패치들을 원본 이미지에 합성
                     texted_image.merge_cropped(current_patches)
@@ -654,7 +664,9 @@ class PipelineMgr:
                 output_dir = "trit/datas/images/output"
                 os.makedirs(output_dir, exist_ok=True)
                 for i, texted_image in enumerate(self.texted_images):
-                    texted_image.visualize(dir=output_dir, filename=f"final_inpainted_{i}.png")
+                    texted_image.visualize(
+                        dir=output_dir, filename=f"final_inpainted_{i}.png"
+                    )
 
                 print(f"[Pipeline] Inpainting completed. Results saved to {output_dir}")
 
@@ -663,6 +675,8 @@ class PipelineMgr:
 
         ################################################### Step 8: Model 3 output apply #####################################
 
-        if self.setting.model3_mode == ModelMode.INFERENCE or self.setting.model3_mode == ModelMode.PRETRAINED:
+        if (
+            self.setting.model3_mode == ModelMode.INFERENCE
+            or self.setting.model3_mode == ModelMode.PRETRAINED
+        ):
             pass
-
