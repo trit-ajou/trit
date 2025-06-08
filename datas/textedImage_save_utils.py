@@ -92,7 +92,7 @@ def save_timgs(timgs: List['TextedImage'], out_dir: str, num_threads: int = 8):
     print(f"[Pipeline] All {len(timgs)} timg/meta saved to {out_dir}")
 
 
-def _load_one(json_path: str, base_dir: str, flags: Dict[str, bool]) -> 'TextedImage':
+def _load_one(json_path: str, base_dir: str, device: torch.device, flags: Dict[str, bool]) -> 'TextedImage':
     """
     [Helper] 단일 메타데이터 파일을 기반으로 TextedImage 객체를 로드합니다.
     flags 딕셔셔리에 따라 필요한 구성 요소만 선택적으로 로드합니다.
@@ -156,6 +156,18 @@ def _load_one(json_path: str, base_dir: str, flags: Dict[str, bool]) -> 'TextedI
     # mask가 없을 경우, 이미지 크기에 맞는 빈 마스크 생성
     if mask is None:
         mask = torch.zeros(1, ref_img.shape[1], ref_img.shape[2])
+
+    # 모든 텐서를 지정된 디바이스로 이동
+    if orig is not None:
+        orig = orig.to(device)
+    if timg is not None:
+        timg = timg.to(device)
+    if mask is not None:
+        mask = mask.to(device)
+    if region_map is not None:
+        region_map = region_map.to(device)
+    if affinity_map is not None:
+        affinity_map = affinity_map.to(device)
 
     return TextedImage(orig, timg, mask, bboxes, char_infos, region_map, affinity_map)
 
