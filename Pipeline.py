@@ -112,13 +112,23 @@ class PipelineMgr:
                 print(f"  timg_tensor: {timg_tensor.shape} (C x H x W)")
                 print(f"  mask_tensor: {mask_tensor.shape} (C x H x W)")
 
-                # 8의 배수 확인 (로직 변경 없이 디버깅만)
+                # 8의 배수 확인 및 동적 조정
                 _, h, w = orig_tensor.shape
                 print(f"[Pipeline] Divisibility check:")
                 print(f"  Height {h}: {h} % 8 = {h % 8} ({'OK' if h % 8 == 0 else 'NEEDS RESIZE'})")
                 print(f"  Width {w}: {w} % 8 = {w % 8} ({'OK' if w % 8 == 0 else 'NEEDS RESIZE'})")
 
-                # 로직 변경 없음: 원본 텐서 그대로 사용
+                # 동적으로 8의 배수로 조정
+                orig_tensor = self._resize_to_multiple_of_8(orig_tensor)
+                timg_tensor = self._resize_to_multiple_of_8(timg_tensor)
+                mask_tensor = self._resize_to_multiple_of_8(mask_tensor)
+
+                # 조정 후 크기 확인
+                _, final_h, final_w = orig_tensor.shape
+                print(f"[Pipeline] After resize:")
+                print(f"  Final size: {final_h}x{final_w}")
+                print(f"  Height {final_h}: {final_h} % 8 = {final_h % 8} ({'OK' if final_h % 8 == 0 else 'ERROR!'})")
+                print(f"  Width {final_w}: {final_w} % 8 = {final_w % 8} ({'OK' if final_w % 8 == 0 else 'ERROR!'})")
 
                 # BBox 객체들 생성
                 bboxes = []
@@ -147,6 +157,27 @@ class PipelineMgr:
 
         print(f"[Pipeline] Successfully loaded {len(texted_images)} preprocessed images")
         return texted_images
+
+    def _resize_to_multiple_of_8(self, image_tensor):
+        """
+        동적으로 이미지를 8의 배수 크기로 리사이즈
+        어떤 크기의 입력이든 Stable Diffusion VAE 요구사항에 맞게 조정
+        """
+        _, h, w = image_tensor.shape
+        new_h = ((h + 7) // 8) * 8  # 8의 배수로 올림
+        new_w = ((w + 7) // 8) * 8  # 8의 배수로 올림
+
+        if h != new_h or w != new_w:
+            print(f"[Pipeline] Resizing {h}x{w} → {new_h}x{new_w} (8의 배수 맞춤)")
+
+            # 고품질 리샘플링으로 리사이즈
+            from torchvision import transforms
+            pil_img = transforms.ToPILImage()(image_tensor)
+            resized_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            return transforms.ToTensor()(resized_img)
+
+        print(f"[Pipeline] Size {h}x{w} already compatible (no resize needed)")
+        return image_tensor
 
     def _run_model3_pretrained_final(self):
         """
