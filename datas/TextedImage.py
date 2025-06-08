@@ -156,6 +156,44 @@ class TextedImage:
             print(f"DEBUG merge_cropped: About to call _resize with size = ({bbox.height}, {bbox.width})")
 
             cropped_texted_image._resize((bbox.height, bbox.width))
+
+            # 크기 불일치 안전 처리
+            target_shape = self.orig[bbox.slice].shape
+            source_shape = cropped_texted_image.orig.shape
+
+            print(f"DEBUG merge_cropped: target_shape={target_shape}, source_shape={source_shape}")
+
+            # 크기가 정확히 일치하는지 확인
+            if source_shape != target_shape:
+                print(f"WARNING: Shape mismatch detected. Resizing source to match target.")
+                # PIL을 사용하여 정확한 크기로 리사이즈
+                from torchvision import transforms
+
+                target_h, target_w = target_shape[1], target_shape[2]
+
+                # orig 리사이즈
+                orig_pil = transforms.ToPILImage()(cropped_texted_image.orig.cpu())
+                orig_resized = orig_pil.resize((target_w, target_h), Image.LANCZOS)
+                cropped_texted_image.orig = transforms.ToTensor()(orig_resized).to(
+                    device=self.orig.device, dtype=self.orig.dtype
+                )
+
+                # timg 리사이즈
+                timg_pil = transforms.ToPILImage()(cropped_texted_image.timg.cpu())
+                timg_resized = timg_pil.resize((target_w, target_h), Image.LANCZOS)
+                cropped_texted_image.timg = transforms.ToTensor()(timg_resized).to(
+                    device=self.timg.device, dtype=self.timg.dtype
+                )
+
+                # mask 리사이즈
+                mask_pil = transforms.ToPILImage()(cropped_texted_image.mask.cpu().squeeze(0))
+                mask_resized = mask_pil.resize((target_w, target_h), Image.LANCZOS)
+                cropped_texted_image.mask = transforms.ToTensor()(mask_resized).unsqueeze(0).to(
+                    device=self.mask.device, dtype=self.mask.dtype
+                )
+
+                print(f"DEBUG merge_cropped: After resize - source_shape={cropped_texted_image.orig.shape}")
+
             self.orig[bbox.slice] = cropped_texted_image.orig
             self.timg[bbox.slice] = cropped_texted_image.timg
             self.mask[bbox.slice] = cropped_texted_image.mask
