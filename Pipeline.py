@@ -102,6 +102,11 @@ class PipelineMgr:
                 timg_tensor = torch.from_numpy(np.array(timg_img)).permute(2, 0, 1).float() / 255.0
                 mask_tensor = torch.from_numpy(np.array(mask_img)).unsqueeze(0).float() / 255.0
 
+                # Stable Diffusion VAE 요구사항: 8의 배수 크기로 조정
+                orig_tensor = self._resize_to_multiple_of_8(orig_tensor)
+                timg_tensor = self._resize_to_multiple_of_8(timg_tensor)
+                mask_tensor = self._resize_to_multiple_of_8(mask_tensor)
+
                 # BBox 객체들 생성
                 bboxes = []
                 for bbox_coords in metadata["bboxes"]:
@@ -129,6 +134,24 @@ class PipelineMgr:
 
         print(f"[Pipeline] Successfully loaded {len(texted_images)} preprocessed images")
         return texted_images
+
+    def _resize_to_multiple_of_8(self, image_tensor):
+        """
+        이미지 텐서를 8의 배수 크기로 리사이즈
+        Stable Diffusion VAE 요구사항을 만족시키기 위함
+        """
+        _, h, w = image_tensor.shape
+        new_h = ((h + 7) // 8) * 8  # 8의 배수로 올림
+        new_w = ((w + 7) // 8) * 8  # 8의 배수로 올림
+
+        if h != new_h or w != new_w:
+            print(f"[Pipeline] Resizing image from {h}x{w} to {new_h}x{new_w} (8의 배수)")
+            # 텐서를 PIL로 변환 후 리사이즈
+            from torchvision import transforms
+            pil_img = transforms.ToPILImage()(image_tensor)
+            resized_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
+            return transforms.ToTensor()(resized_img)
+        return image_tensor
 
     def _run_model3_pretrained_final(self):
         """
