@@ -35,8 +35,7 @@ class Model3(nn.Module):
     def lora_train(self, texted_images_for_model3: list[TextedImage]):
         print("Loading SD3 pipeline for LoRA training...")
 
-        # 학습은 fp16으로 설정
-        weight_dtype = torch.float16
+        weight_dtype = torch.float32
         model_id = self.model_config["model_id"]
         lora_weights_path = self.model_config["lora_path"]
         num_epochs = self.model_config.get("epochs", 10)
@@ -75,8 +74,8 @@ class Model3(nn.Module):
         
         try:
             #기존 lora 가중치 로드
-            if os.path.exists(lora_weights_path) and os.path.exists(os.path.join(lora_weights_path, "best_model.safetensors")):
-                transformer_lora = PeftModel.from_pretrained(transformer, lora_weights_path)
+            if os.path.exists(lora_weights_path) and os.path.exists(os.path.join(lora_weights_path, "adapter_model.safetensors")):
+                transformer_lora = PeftModel.from_pretrained(transformer, lora_weights_path, is_trainable = True)
                 print(f"LoRA weights loaded from {lora_weights_path}")
             else:
 
@@ -84,11 +83,12 @@ class Model3(nn.Module):
                     r = self.model_config.get("lora_rank", 8),
                     lora_alpha = self.model_config.get("lora_alpha", 16),
                     target_modules = ["to_k", "to_q", "to_v", "to_out.0"],
-                    lora_dropout = 0.05,
+                    lora_dropout = 0.1,
                     bias = "none",
                     init_lora_weights = "gaussian",
                 )
                 transformer_lora = get_peft_model(transformer, lora_config)
+            transformer_lora.to(self.device)
             # vae 및 텍스트 인코더 가중치 동결
             vae.requires_grad_(False)
             text_encoder.requires_grad_(False)
@@ -97,6 +97,7 @@ class Model3(nn.Module):
         except Exception as e:
             print(f"Error setting up LoRA: {e}")
             return
+        
         
         # 데이터셋을 훈련/검증 세트로 분할
         train_size = int(0.8 * len(texted_images_for_model3))
@@ -120,18 +121,15 @@ class Model3(nn.Module):
         )
         print(f"데이터셋 분할: 훈련 {len(train_loader)}개, 검증 {len(val_loader)}개")
         
-        # optimizer 설정 - Adafactor 자체 스케일링 사용
-        optimizer = Adafactor(
+        optimizer = torch.optim.AdamW(
             transformer_lora.parameters(),
-            lr= None, 
-            scale_parameter=True,
-            relative_step=True,
-            warmup_init=True,  
+            lr=1e-5,  # Adafactor보다 훨씬 작은 학습률로 시작 (예: 1e-5 또는 5e-6)
+            betas=(0.9, 0.999),
+            eps=1e-08,
+            weight_decay=1e-2 # L2 정규화(과적합 방지)
         )
         
         print("[Model3] Optimizer set up.")
-        
-        
         # LoRA 학습 루프
         output_dir = self.model_config.get("output_dir", "datas/images/output/model3_sd3_lora")
         os.makedirs(output_dir, exist_ok=True)
@@ -141,7 +139,6 @@ class Model3(nn.Module):
         best_val_loss = float('inf')
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
-        scaler = GradScaler(enabled=(weight_dtype == torch.float16))
         
         # 노이즈 스케줄러 설정
         noise_scheduler = DDIMScheduler(
@@ -152,16 +149,14 @@ class Model3(nn.Module):
             clip_sample=False,
             set_alpha_to_one=False
             )
-        
+
         for epoch in tqdm(range(num_epochs), desc="Epochs"):
             transformer_lora.train()
             epoch_loss = 0.0
             
-            for batch_images in tqdm(train_loader, desc="Training batches"):
-                # 메모리 정리
+            for i, batch_images in enumerate(train_loader):
                 torch.cuda.empty_cache()
                 
-                # VAE 입력은 float32를 선호. img.orig는 [0,1] 이어야함함
                 original_pixel_values_batch = torch.stack(
                     [img.orig for img in batch_images]
                 ).to(self.device, dtype=torch.float32) 
@@ -171,22 +166,15 @@ class Model3(nn.Module):
                 ).to(self.device, dtype=weight_dtype)   
                 
                 with torch.no_grad():
-                    # VAE 인코딩
                     vae.to(self.device)
-                    
-                    
                     target_latents_batch = vae.encode(original_pixel_values_batch).latent_dist.sample() * vae.config.scaling_factor
-                    target_latents_batch = target_latents_batch.to(dtype=weight_dtype)
                     
                     latent_mask_batch = F.interpolate(
                         mask_pixel_values_batch,
                         size=target_latents_batch.shape[-2:],
                         mode="nearest"
-                    ) # [B, 1, H_lat, W_lat]
+                    )
                     
-                      
-                    # 텍스트 임베딩 생성 - 배치 크기를 고려하여 생성
-                    print("[Model3 TRAIN] 텍스트 임베딩 생성 중 ...")
                     text_encoder.to(self.device)
                     if text_encoder_2: text_encoder_2.to(self.device)
                     if text_encoder_3: text_encoder_3.to(self.device)
@@ -196,74 +184,59 @@ class Model3(nn.Module):
                         text_encoder, text_encoder_2, text_encoder_3, self.device, len(batch_images)
                     )
 
-                    # 임베딩 준비 - CFG를 위해 negative와 positive 결합
-                    prompt_embeds_full = torch.cat([negative_prompt_embeds.to(weight_dtype), prompt_embeds.to(weight_dtype)], dim=0)
-                    pooled_embeddings_full = torch.cat([negative_pooled_prompt_embeds.to(weight_dtype), pooled_prompt_embeds.to(weight_dtype)], dim=0)
-
+                    prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
+                    pooled_embeddings_full = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)
+                # =================== with torch.no_grad() 블록 종료 ===================
 
                 noise_batch = torch.randn_like(target_latents_batch)
-                timesteps_batch = torch.randint(0, noise_scheduler.num_train_timesteps, (len(batch_images), ), device=self.device).long()
+                timesteps_batch = torch.randint(0, noise_scheduler.config.num_train_timesteps, (len(batch_images), ), device=self.device).long()
                 
-                # 타겟 잠재 벡터에 노이즈 추가가
-                noisy_target_latents = noise_scheduler.add_noise(target_latents_batch, noise_batch, timesteps_batch) # type: ignore
-                # [B, C_lat, H_lat, W_lat] 
-                #입력 모델 구성
-                initial_lantents = target_latents_batch * (1 - latent_mask_batch) + noisy_target_latents * latent_mask_batch
-                    
-                    
-                with autocast("cuda",dtype=weight_dtype):
-                    print("[Model3 TRAIN] 노이즈 예측 중 ...")
-                    # 트랜스포머 모델로 노이즈 예측
-                    latent_model_input = torch.cat([initial_lantents]*2, dim=0)
-                    timesteps_input = torch.cat([timesteps_batch] * 2, dim = 0)
-                    
-                    noise_pred = transformer_lora(
-                        hidden_states=latent_model_input,
-                        timestep=timesteps_input,
-                        encoder_hidden_states=prompt_embeds_full,
-                        pooled_projections=pooled_embeddings_full,
-                        return_dict=False
-                    )[0]
-                    
-                    #noise_pred 분리리
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    # 손실 계산
-                    loss = F.mse_loss(noise_pred_text.to(torch.float32), noise_batch.to(torch.float32), reduction="none")
-                    # 손실 가중치 계산
-                    mask_weight = self.model_config.get("mask_weight", 2.0)
-                    unmask_weight = 1.0
-                    weight_map_per_element = (
-                        latent_mask_batch.to(loss.device, dtype=torch.float32) * (mask_weight - unmask_weight) 
-                        + unmask_weight
-                    )
-                    weighted_loss_map = loss * weight_map_per_element
-                    loss = weighted_loss_map.mean()
+                noisy_target_latents = noise_scheduler.add_noise(target_latents_batch, noise_batch, timesteps_batch) #type: ignore
                 
+                initial_latents = target_latents_batch * (1 - latent_mask_batch) + noisy_target_latents * latent_mask_batch
                 
+                latent_model_input = torch.cat([initial_latents]*2, dim=0)
+                timesteps_input = torch.cat([timesteps_batch] * 2, dim = 0)
                 
+                # 학습 대상 모델의 순전파
+                noise_pred = transformer_lora(
+                    hidden_states=latent_model_input,
+                    timestep=timesteps_input,
+                    encoder_hidden_states=prompt_embeds_full,
+                    pooled_projections=pooled_embeddings_full,
+                    return_dict=False
+                )[0]
+                
+                _, noise_pred_text = noise_pred.chunk(2)
+                
+                loss = F.mse_loss(noise_pred_text, noise_batch, reduction="none")
+                
+                mask_weight = self.model_config.get("mask_weight", 2.0)
+                unmask_weight = 1.0
+                weight_map_per_element = (
+                    latent_mask_batch * (mask_weight - unmask_weight) 
+                    + unmask_weight
+                )
+                weighted_loss_map = loss * weight_map_per_element
+                loss = weighted_loss_map.mean()
                 optimizer.zero_grad(set_to_none=True)
             
-                scaler.scale(loss).backward() # 🚀 스케일된 손실로 역전파
+                # 역전파
+                loss.backward()
 
-                # 🚀 그래디언트 클리핑 (옵티마이저 스텝 전, unscale 후)
-                scaler.unscale_(optimizer) # 옵티마이저에 연결된 파라미터들의 그래디언트를 원래 값으로 되돌림
+                # (선택) 그래디언트 클리핑
                 torch.nn.utils.clip_grad_norm_(
                     [p for p in transformer_lora.parameters() if p.requires_grad],
                     max_norm=self.model_config.get("max_grad_norm", 1.0) 
                 )
                 
-                scaler.step(optimizer) # 🚀 옵티마이저 스텝 (스케일된 그래디언트 자동 처리)
-                scaler.update()        # 🚀 스케일러 업데이트 (다음 스텝을 위해 스케일 조정)
-            
+                optimizer.step()
                 
-                # 손실 추적
                 epoch_loss += loss.detach().item()
-                
-                # 메모리 정리
                 del loss, noise_pred, latent_model_input, timesteps_input
                 torch.cuda.empty_cache()
                 
-            # 에폭 종료 후 검증 손실 계산
+             # 에폭 종료 후 검증 손실 계산
             if epoch > 0:
                 avg_train_loss = epoch_loss / epoch
                 print(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}")
@@ -286,6 +259,8 @@ class Model3(nn.Module):
                     os.makedirs(lora_weights_path, exist_ok=True)
                     transformer_lora.save_pretrained(lora_weights_path)
                     print("모델 저장 완료.")
+
+
 
     def _calculate_validation_loss(self, transformer_lora, vae, text_encoder, text_encoder_2, text_encoder_3,
                              tokenizer, tokenizer_2, tokenizer_3, noise_scheduler,
@@ -319,9 +294,7 @@ class Model3(nn.Module):
                 # KEY CHANGE: 검증에서도 학습과 동일한 방식으로 입력을 구성합니다.
                 # 1. 타겟 노이즈와 타임스텝 생성
                 noise = torch.randn_like(target_latents)
-                timesteps = torch.randint(
-                    0, noise_scheduler.num_train_timesteps, (len(batch_images),), device=device
-                ).long()
+                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (len(batch_images), ), device=self.device).long()
                 
                 # 2. 노이즈가 추가된 타겟 잠재 벡터 생성
                 noisy_target_latents = noise_scheduler.add_noise(target_latents, noise, timesteps)
@@ -376,6 +349,7 @@ class Model3(nn.Module):
         
         avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
         return avg_val_loss
+
 
     def _encode_prompt(self, prompt, negative_prompt, tokenizer, tokenizer_2, tokenizer_3,
                      text_encoder, text_encoder_2, text_encoder_3, device, batch_size=1):

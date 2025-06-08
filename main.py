@@ -121,7 +121,7 @@ if __name__ == "__main__":
     setting.ckpt_interval = args.ckpt_interval
     setting.clear_img_dir = args.images_dir
     setting.lora_rank = args.lora_rank
-    setting.lora_alpha = setting.lora_rank * 2
+    setting.lora_alpha = setting.lora_rank
     setting.lora_weight_path = args.lora_weight_path
 
     pipeline = PipelineMgr(setting, policy)
