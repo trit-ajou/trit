@@ -709,10 +709,20 @@ Training Summary:
                     # VRAM 관리
                     torch.cuda.empty_cache()
 
+                    # 텐서 크기 디버깅
+                    print(f"[Model3 Inference] Patch {i+1} tensor shapes:")
+                    print(f"  current_patch.orig: {current_patch.orig.shape} (C x H x W)")
+                    print(f"  current_patch.mask: {current_patch.mask.shape} (C x H x W)")
+
                     # 원본 이미지와 마스크를 PIL로 변환
                     to_pil = transforms.ToPILImage()
                     orig_pil = to_pil(current_patch.orig.cpu())
                     mask_pil = to_pil(current_patch.mask.cpu().squeeze(0))
+
+                    # PIL 이미지 크기 디버깅
+                    print(f"[Model3 Inference] PIL image sizes:")
+                    print(f"  orig_pil: {orig_pil.size} (W x H)")
+                    print(f"  mask_pil: {mask_pil.size} (W x H)")
 
                     # 마스크 이진화 (0 또는 255)
                     mask_np = np.array(mask_pil)
@@ -721,6 +731,12 @@ Training Summary:
 
                     # 이미지 크기 가져오기
                     width, height = orig_pil.size
+
+                    # Stable Diffusion 입력 크기 디버깅
+                    print(f"[Model3 Inference] SD input parameters:")
+                    print(f"  width: {width}, height: {height}")
+                    print(f"  width % 8 = {width % 8} ({'OK' if width % 8 == 0 else 'ERROR!'})")
+                    print(f"  height % 8 = {height % 8} ({'OK' if height % 8 == 0 else 'ERROR!'})")
 
                     # SD 인페인팅 실행
                     result = pipe(

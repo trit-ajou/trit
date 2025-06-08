@@ -62,9 +62,9 @@ class PipelineMgr:
 
     def _load_preprocessed_data(self) -> list[TextedImage]:
         """
-        images/preprocess/ 폴더에서 전처리된 데이터를 로드하여 TextedImage 객체들을 생성
+        trit/datas/images/preprocess/ 폴더에서 전처리된 데이터를 로드하여 TextedImage 객체들을 생성
         """
-        preprocess_dir = "images/preprocess"
+        preprocess_dir = "trit/datas/images/preprocess"
         if not os.path.exists(preprocess_dir):
             raise FileNotFoundError(f"Preprocess directory not found: {preprocess_dir}")
 
@@ -97,15 +97,28 @@ class PipelineMgr:
                 timg_img = Image.open(timg_path).convert('RGB')
                 mask_img = Image.open(mask_path).convert('L')  # 그레이스케일
 
+                print(f"[Pipeline] Original PIL image sizes:")
+                print(f"  orig_img: {orig_img.size} (W x H)")
+                print(f"  timg_img: {timg_img.size} (W x H)")
+                print(f"  mask_img: {mask_img.size} (W x H)")
+
                 # PIL to Tensor 변환 (0-1 범위)
                 orig_tensor = torch.from_numpy(np.array(orig_img)).permute(2, 0, 1).float() / 255.0
                 timg_tensor = torch.from_numpy(np.array(timg_img)).permute(2, 0, 1).float() / 255.0
                 mask_tensor = torch.from_numpy(np.array(mask_img)).unsqueeze(0).float() / 255.0
 
-                # Stable Diffusion VAE 요구사항: 8의 배수 크기로 조정
-                orig_tensor = self._resize_to_multiple_of_8(orig_tensor)
-                timg_tensor = self._resize_to_multiple_of_8(timg_tensor)
-                mask_tensor = self._resize_to_multiple_of_8(mask_tensor)
+                print(f"[Pipeline] Tensor shapes before resize:")
+                print(f"  orig_tensor: {orig_tensor.shape} (C x H x W)")
+                print(f"  timg_tensor: {timg_tensor.shape} (C x H x W)")
+                print(f"  mask_tensor: {mask_tensor.shape} (C x H x W)")
+
+                # 8의 배수 확인 (로직 변경 없이 디버깅만)
+                _, h, w = orig_tensor.shape
+                print(f"[Pipeline] Divisibility check:")
+                print(f"  Height {h}: {h} % 8 = {h % 8} ({'OK' if h % 8 == 0 else 'NEEDS RESIZE'})")
+                print(f"  Width {w}: {w} % 8 = {w % 8} ({'OK' if w % 8 == 0 else 'NEEDS RESIZE'})")
+
+                # 로직 변경 없음: 원본 텐서 그대로 사용
 
                 # BBox 객체들 생성
                 bboxes = []
@@ -135,24 +148,6 @@ class PipelineMgr:
         print(f"[Pipeline] Successfully loaded {len(texted_images)} preprocessed images")
         return texted_images
 
-    def _resize_to_multiple_of_8(self, image_tensor):
-        """
-        이미지 텐서를 8의 배수 크기로 리사이즈
-        Stable Diffusion VAE 요구사항을 만족시키기 위함
-        """
-        _, h, w = image_tensor.shape
-        new_h = ((h + 7) // 8) * 8  # 8의 배수로 올림
-        new_w = ((w + 7) // 8) * 8  # 8의 배수로 올림
-
-        if h != new_h or w != new_w:
-            print(f"[Pipeline] Resizing image from {h}x{w} to {new_h}x{new_w} (8의 배수)")
-            # 텐서를 PIL로 변환 후 리사이즈
-            from torchvision import transforms
-            pil_img = transforms.ToPILImage()(image_tensor)
-            resized_img = pil_img.resize((new_w, new_h), Image.LANCZOS)
-            return transforms.ToTensor()(resized_img)
-        return image_tensor
-
     def _run_model3_pretrained_final(self):
         """
         PRETRAINED_FINAL 모드: 전처리된 데이터로 Model3_pretrained 추론만 실행
@@ -180,6 +175,15 @@ class PipelineMgr:
         texted_images_for_model3 = [
             deepcopy(texted_image) for texted_image in self.texted_images
         ]
+
+        print(f"[Pipeline] Final check before Model3 inference:")
+        for i, texted_image in enumerate(texted_images_for_model3):
+            print(f"  Image {i+1}:")
+            print(f"    orig shape: {texted_image.orig.shape} (C x H x W)")
+            print(f"    timg shape: {texted_image.timg.shape} (C x H x W)")
+            print(f"    mask shape: {texted_image.mask.shape} (C x H x W)")
+            _, h, w = texted_image.orig.shape
+            print(f"    Size check: {h}x{w}, H%8={h%8}, W%8={w%8}")
 
         # Model3_pretrained 추론 실행
         model3 = Model3_pretrained(model_pretrained_config)
