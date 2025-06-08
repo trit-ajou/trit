@@ -171,7 +171,8 @@ class PipelineMgr:
                 model3.lora_train(texted_images_for_model3)
 
             # 사전 훈련 모델 사용
-            elif self.setting.model3_mode == ModelMode.PRETRAINED_INFERENCE:
+            elif self.setting.model3_mode == ModelMode.PRETRAINED:
+
                 print("[Pipeline] Running Model 3 Pretrained Inference")
                 model3 = Model3_pretrained(model_pretrained_config)
                 # 패치들을 인페인팅
