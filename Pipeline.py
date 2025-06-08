@@ -130,13 +130,13 @@ class PipelineMgr:
                 "output_dir": "trit/datas/images/output",  # 학습 중 시각화 결과 저장 경로
                 "mask_weight": self.setting.mask_weight,
             }
-
             texted_images_for_model3 = load_timgs(
                 self.setting.texted_img_dir,
                 self.setting.device,
                 mode=LoadingMode.MODEL3_TRAIN,
                 max_num=self.setting.num_images,
             )
+            
             if self.setting.model3_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 3")
                 model3 = Model3(model_config)
@@ -144,6 +144,7 @@ class PipelineMgr:
                 model3.lora_train(texted_images_for_model3)
 
             elif self.setting.model3_mode == ModelMode.INFERENCE:
+                
                 print("[Pipeline] Running Model 3 Inference")
                 model3 = Model3(model_config)
                 # 패치들을 인페인팅
@@ -155,6 +156,9 @@ class PipelineMgr:
                         outputs[i : i + len(texted_image.bboxes)]
                     )
                     i += len(texted_image.bboxes)
+                    
+                for i, texted_image in enumerate(self.texted_images):
+                    texted_image.visualize(self.setting.output_img_dir, f"final_{texted_image}.{i}.png")
 
             # 사전 훈련 모델 훈련
             elif self.setting.model3_mode == ModelMode.PRETRAINED_TRAIN:
@@ -176,6 +180,9 @@ class PipelineMgr:
                         outputs[i : i + len(texted_image.bboxes)]
                     )
                     i += len(texted_image.bboxes)
+                    
+                for i, texted_image in enumerate(self.texted_images):
+                    texted_image.visualize(self.setting.output_img_dir, f"final_{texted_image}.{i}.png")
 
     def _run_imageloader(self):
         print("[Pipeline] Loading Images")
