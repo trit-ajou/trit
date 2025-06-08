@@ -161,6 +161,12 @@ class Model3_pretrained(nn.Module):
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
         scaler = GradScaler(enabled=(weight_dtype == torch.float16))
+
+        # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
+        print(f"[Training Debug] Model dtypes at start:")
+        print(f"  UNet dtype: {next(unet_lora.parameters()).dtype}")
+        print(f"  weight_dtype setting: {weight_dtype}")
+        print(f"  Mixed precision enabled: {weight_dtype == torch.float16}")
         
         # 노이즈 스케줄러 설정
         noise_scheduler = DDIMScheduler(
@@ -552,8 +558,20 @@ Training Summary:
                 mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
                 
                 vae.to(device)
-                target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
-                target_latents = target_latents.to(dtype=weight_dtype)
+
+                # 디버깅: VAE 입력/출력 데이터 타입 확인
+                print(f"[Validation Debug] VAE processing:")
+                print(f"  VAE dtype: {next(vae.parameters()).dtype}")
+                print(f"  original_pixel_values dtype: {original_pixel_values.dtype}")
+
+                try:
+                    target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
+                    print(f"  VAE output dtype (before conversion): {target_latents.dtype}")
+                    target_latents = target_latents.to(dtype=weight_dtype)
+                    print(f"  VAE output dtype (after conversion): {target_latents.dtype}")
+                except Exception as vae_error:
+                    print(f"[Validation Debug] VAE encoding failed: {vae_error}")
+                    raise vae_error
                 
                 latent_mask = F.interpolate(
                     mask_pixel_values, size=target_latents.shape[-2:], mode="nearest"
@@ -575,12 +593,23 @@ Training Summary:
                 # 텍스트 인코딩 (SD2용) - fp16으로 통일
                 text_encoder.to(device)
 
-                prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
-                    prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
-                )
+                # 디버깅: 텍스트 인코더 데이터 타입 확인
+                print(f"[Validation Debug] Text encoding:")
+                print(f"  Text encoder dtype: {next(text_encoder.parameters()).dtype}")
+
+                try:
+                    prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
+                        prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
+                    )
+                    print(f"  prompt_embeds dtype: {prompt_embeds.dtype}")
+                    print(f"  negative_prompt_embeds dtype: {negative_prompt_embeds.dtype}")
+                except Exception as text_error:
+                    print(f"[Validation Debug] Text encoding failed: {text_error}")
+                    raise text_error
 
                 # 텍스트 임베딩도 fp16으로 변환
                 prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)  # fp16
+                print(f"  prompt_embeds_full dtype: {prompt_embeds_full.dtype}")
 
                 # SD2 Inpainting용 9채널 입력 구성 (validation에서도 동일)
                 # 마스크된 latent 생성
@@ -609,12 +638,24 @@ Training Summary:
                 timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
                 prompt_embeds_full = prompt_embeds_full.to(dtype=weight_dtype)  # fp16
 
-                noise_pred = unet_lora(
-                    sample=latent_model_input,
-                    timestep=timesteps_input,
-                    encoder_hidden_states=prompt_embeds_full,
-                    return_dict=False
-                )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
+                # 디버깅: 모든 입력의 데이터 타입 확인
+                print(f"[Validation Debug] UNet input dtypes:")
+                print(f"  latent_model_input: {latent_model_input.dtype}")
+                print(f"  timesteps_input: {timesteps_input.dtype}")
+                print(f"  prompt_embeds_full: {prompt_embeds_full.dtype}")
+                print(f"  UNet parameters dtype: {next(unet_lora.parameters()).dtype}")
+
+                try:
+                    noise_pred = unet_lora(
+                        sample=latent_model_input,
+                        timestep=timesteps_input,
+                        encoder_hidden_states=prompt_embeds_full,
+                        return_dict=False
+                    )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
+                    print(f"[Validation Debug] UNet forward pass successful")
+                except Exception as unet_error:
+                    print(f"[Validation Debug] UNet forward pass failed: {unet_error}")
+                    raise unet_error
                 
                 _, noise_pred_text = noise_pred.chunk(2)
                 
