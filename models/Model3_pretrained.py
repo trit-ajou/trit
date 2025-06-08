@@ -162,20 +162,9 @@ class Model3_pretrained(nn.Module):
             unet_lora = unet_lora.half()
             vae = vae.half()
             text_encoder = text_encoder.half()
-            print(f"[Training] All models converted to fp16")
 
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
-        # Adafactor는 자체 스케일링을 하므로 GradScaler 사용하지 않음
-        print(f"[Training] Using Adafactor without GradScaler (Adafactor handles scaling internally)")
-
-        # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
-        print(f"[Training Debug] Model dtypes at start:")
-        print(f"  UNet dtype: {next(unet_lora.parameters()).dtype}")
-        print(f"  VAE dtype: {next(vae.parameters()).dtype}")
-        print(f"  Text Encoder dtype: {next(text_encoder.parameters()).dtype}")
-        print(f"  weight_dtype setting: {weight_dtype}")
-        print(f"  Mixed precision enabled: {weight_dtype == torch.float16}")
 
         # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
         print(f"[Training Debug] Model dtypes at start:")
@@ -237,8 +226,7 @@ class Model3_pretrained(nn.Module):
                     ) # [B, 1, H_lat, W_lat]
                     
                       
-                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용 (이미 fp16으로 설정됨)
-                    print("[Model3-pretrained TRAIN] 텍스트 임베딩 생성 중 ...")
+                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용
                     text_encoder.to(self.device)
 
                     prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
@@ -260,7 +248,6 @@ class Model3_pretrained(nn.Module):
                     
                     
                 with autocast("cuda",dtype=weight_dtype):
-                    print("[Model3-pretrained TRAIN] 노이즈 예측 중 ...")
                     # SD2 Inpainting용 9채널 입력 구성
                     # [latent(4) + masked_latent(4) + mask(1)] = 9채널
 
@@ -535,17 +522,11 @@ Training Summary:
         """
         SD2용 인페인팅 학습 방식에 맞게 수정된 검증 손실 계산 함수
         """
-        # 모든 컴포넌트를 fp16으로 통일
-        original_dtype = next(unet_lora.parameters()).dtype
-        print(f"[Validation] Model dtype: {original_dtype}")
-
         # 모든 모델을 fp16으로 설정하고 평가 모드로 전환
         unet_lora.eval()
         unet_lora = unet_lora.half()  # UNet도 fp16으로 명시적 변환
         vae = vae.half()  # VAE를 fp16으로
         text_encoder = text_encoder.half()  # Text Encoder를 fp16으로
-        print(f"[Validation] All models set to fp16")
-        print(f"[Validation] UNet dtype after conversion: {next(unet_lora.parameters()).dtype}")
 
         device = self.device
         total_val_loss = 0.0
@@ -573,20 +554,8 @@ Training Summary:
                 mask_pixel_values = torch.stack([img.mask for img in batch_images]).to(device, dtype=weight_dtype)  # fp16
                 
                 vae.to(device)
-
-                # 디버깅: VAE 입력/출력 데이터 타입 확인
-                print(f"[Validation Debug] VAE processing:")
-                print(f"  VAE dtype: {next(vae.parameters()).dtype}")
-                print(f"  original_pixel_values dtype: {original_pixel_values.dtype}")
-
-                try:
-                    target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
-                    print(f"  VAE output dtype (before conversion): {target_latents.dtype}")
-                    target_latents = target_latents.to(dtype=weight_dtype)
-                    print(f"  VAE output dtype (after conversion): {target_latents.dtype}")
-                except Exception as vae_error:
-                    print(f"[Validation Debug] VAE encoding failed: {vae_error}")
-                    raise vae_error
+                target_latents = vae.encode(original_pixel_values).latent_dist.sample() * vae.config.scaling_factor
+                target_latents = target_latents.to(dtype=weight_dtype)
                 
                 latent_mask = F.interpolate(
                     mask_pixel_values, size=target_latents.shape[-2:], mode="nearest"
@@ -605,26 +574,15 @@ Training Summary:
                 # 3. 모델의 실제 입력(initial_latents) 구성
                 initial_latents = target_latents * (1 - latent_mask) + noisy_target_latents * latent_mask
                 
-                # 텍스트 인코딩 (SD2용) - fp16으로 통일
+                # 텍스트 인코딩 (SD2용)
                 text_encoder.to(device)
 
-                # 디버깅: 텍스트 인코더 데이터 타입 확인
-                print(f"[Validation Debug] Text encoding:")
-                print(f"  Text encoder dtype: {next(text_encoder.parameters()).dtype}")
+                prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
+                    prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
+                )
 
-                try:
-                    prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
-                        prompt, negative_prompt, tokenizer, text_encoder, device, len(batch_images)
-                    )
-                    print(f"  prompt_embeds dtype: {prompt_embeds.dtype}")
-                    print(f"  negative_prompt_embeds dtype: {negative_prompt_embeds.dtype}")
-                except Exception as text_error:
-                    print(f"[Validation Debug] Text encoding failed: {text_error}")
-                    raise text_error
-
-                # 텍스트 임베딩도 fp16으로 변환
-                prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)  # fp16
-                print(f"  prompt_embeds_full dtype: {prompt_embeds_full.dtype}")
+                # 텍스트 임베딩 결합
+                prompt_embeds_full = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0).to(dtype=weight_dtype)
 
                 # SD2 Inpainting용 9채널 입력 구성 (validation에서도 동일)
                 # 마스크된 latent 생성
@@ -648,29 +606,17 @@ Training Summary:
                 latent_model_input = torch.cat([latent_model_input] * 2, dim=0)
                 timesteps_input = torch.cat([timesteps] * 2, dim=0)
 
-                # validation에서도 훈련과 동일한 fp16 사용 (데이터 타입 일관성)
-                latent_model_input = latent_model_input.to(dtype=weight_dtype)  # fp16
-                timesteps_input = timesteps_input.to(dtype=torch.long)  # timesteps는 long 타입이어야 함
-                prompt_embeds_full = prompt_embeds_full.to(dtype=weight_dtype)  # fp16
+                # validation에서도 훈련과 동일한 fp16 사용
+                latent_model_input = latent_model_input.to(dtype=weight_dtype)
+                timesteps_input = timesteps_input.to(dtype=torch.long)
+                prompt_embeds_full = prompt_embeds_full.to(dtype=weight_dtype)
 
-                # 디버깅: 모든 입력의 데이터 타입 확인
-                print(f"[Validation Debug] UNet input dtypes:")
-                print(f"  latent_model_input: {latent_model_input.dtype}")
-                print(f"  timesteps_input: {timesteps_input.dtype}")
-                print(f"  prompt_embeds_full: {prompt_embeds_full.dtype}")
-                print(f"  UNet parameters dtype: {next(unet_lora.parameters()).dtype}")
-
-                try:
-                    noise_pred = unet_lora(
-                        sample=latent_model_input,
-                        timestep=timesteps_input,
-                        encoder_hidden_states=prompt_embeds_full,
-                        return_dict=False
-                    )[0]  # return_dict=False일 때는 tuple의 첫 번째 요소가 sample
-                    print(f"[Validation Debug] UNet forward pass successful")
-                except Exception as unet_error:
-                    print(f"[Validation Debug] UNet forward pass failed: {unet_error}")
-                    raise unet_error
+                noise_pred = unet_lora(
+                    sample=latent_model_input,
+                    timestep=timesteps_input,
+                    encoder_hidden_states=prompt_embeds_full,
+                    return_dict=False
+                )[0]
                 
                 _, noise_pred_text = noise_pred.chunk(2)
                 
@@ -693,10 +639,6 @@ Training Summary:
                 torch.cuda.empty_cache()
         
         avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
-
-        # 모델 타입은 변경하지 않았으므로 복원 불필요
-        print(f"[Validation] Model dtype maintained: {next(unet_lora.parameters()).dtype}")
-
         return avg_val_loss
 
 
