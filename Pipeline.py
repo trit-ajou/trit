@@ -5,8 +5,10 @@ from copy import deepcopy  # Changed from copy to deepcopy for TextedImage objec
 from torch.utils.data import DataLoader, random_split
 
 import os  # Added for path joining and directory creation
+import json  # Added for JSON file reading
+import numpy as np  # Added for array operations
 import torchvision.transforms.functional as VTF  # Added for visualization
-from PIL import ImageDraw  # Added for visualization
+from PIL import ImageDraw, Image  # Added for visualization and image loading
 from .models.model1_util.test import test_net
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
@@ -58,7 +60,134 @@ class PipelineMgr:
         os.makedirs(self.setting.clear_img_dir, exist_ok=True)
         os.makedirs(self.setting.output_img_dir, exist_ok=True)
 
+    def _load_preprocessed_data(self) -> list[TextedImage]:
+        """
+        images/preprocess/ 폴더에서 전처리된 데이터를 로드하여 TextedImage 객체들을 생성
+        """
+        preprocess_dir = "images/preprocess"
+        if not os.path.exists(preprocess_dir):
+            raise FileNotFoundError(f"Preprocess directory not found: {preprocess_dir}")
+
+        # JSON 파일들 찾기
+        json_files = [f for f in os.listdir(preprocess_dir) if f.endswith('.json')]
+        json_files.sort()  # 파일명 순서대로 정렬
+
+        if not json_files:
+            raise FileNotFoundError(f"No JSON files found in {preprocess_dir}")
+
+        print(f"[Pipeline] Loading {len(json_files)} preprocessed files from {preprocess_dir}")
+
+        texted_images = []
+
+        for json_file in json_files:
+            json_path = os.path.join(preprocess_dir, json_file)
+
+            try:
+                # JSON 파일 읽기
+                with open(json_path, 'r') as f:
+                    metadata = json.load(f)
+
+                # 필요한 파일 경로들
+                orig_path = os.path.join(preprocess_dir, metadata["orig_file"])
+                timg_path = os.path.join(preprocess_dir, metadata["timg_file"])
+                mask_path = os.path.join(preprocess_dir, metadata["mask_file"])
+
+                # 이미지 로드 및 텐서 변환
+                orig_img = Image.open(orig_path).convert('RGB')
+                timg_img = Image.open(timg_path).convert('RGB')
+                mask_img = Image.open(mask_path).convert('L')  # 그레이스케일
+
+                # PIL to Tensor 변환 (0-1 범위)
+                orig_tensor = torch.from_numpy(np.array(orig_img)).permute(2, 0, 1).float() / 255.0
+                timg_tensor = torch.from_numpy(np.array(timg_img)).permute(2, 0, 1).float() / 255.0
+                mask_tensor = torch.from_numpy(np.array(mask_img)).unsqueeze(0).float() / 255.0
+
+                # BBox 객체들 생성
+                bboxes = []
+                for bbox_coords in metadata["bboxes"]:
+                    if len(bbox_coords) == 4:
+                        x1, y1, x2, y2 = bbox_coords
+                        bboxes.append(BBox(x1, y1, x2, y2))
+
+                # TextedImage 객체 생성
+                texted_image = TextedImage(
+                    orig=orig_tensor,
+                    timg=timg_tensor,
+                    mask=mask_tensor,
+                    bboxes=bboxes
+                )
+
+                texted_images.append(texted_image)
+                print(f"[Pipeline] Loaded {json_file}: {len(bboxes)} bboxes")
+
+            except Exception as e:
+                print(f"[Pipeline] Error loading {json_file}: {e}")
+                continue
+
+        if not texted_images:
+            raise RuntimeError("No valid preprocessed data could be loaded")
+
+        print(f"[Pipeline] Successfully loaded {len(texted_images)} preprocessed images")
+        return texted_images
+
+    def _run_model3_pretrained_final(self):
+        """
+        PRETRAINED_FINAL 모드: 전처리된 데이터로 Model3_pretrained 추론만 실행
+        """
+        print("[Pipeline] Running Model3_pretrained Final Inference")
+
+        # Model3_pretrained 설정 (기존 설정과 동일)
+        model_pretrained_config = {
+            "model_id": "stabilityai/stable-diffusion-2-inpainting",
+            "prompts": "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style, remove lettering, remove text, remove logo, remove watermark, consistent with surrounding",
+            "negative_prompt": "photo, realistic, color, colorful, purple, violet, sepia, any color tint, blurry",
+            "lora_path": self.setting.lora_weight_path,
+            "epochs": self.setting.epochs,
+            "batch_size": self.setting.batch_size,
+            "guidance_scale": 7.5,
+            "inference_steps": 28,
+            "input_size": self.setting.model3_input_size,
+            "lora_rank": self.setting.lora_rank,
+            "lora_alpha": self.setting.lora_alpha,
+            "output_dir": "trit/datas/images/output",
+            "mask_weight": self.setting.mask_weight,
+        }
+
+        # texted_images_for_model3 생성 (전처리된 데이터 그대로 사용)
+        texted_images_for_model3 = [
+            deepcopy(texted_image) for texted_image in self.texted_images
+        ]
+
+        # Model3_pretrained 추론 실행
+        model3 = Model3_pretrained(model_pretrained_config)
+        outputs = model3.inference(texted_images_for_model3)
+
+        # 결과를 원본 이미지에 병합
+        i = 0
+        for texted_image in self.texted_images:
+            texted_image.merge_cropped(
+                outputs[i : i + len(texted_image.bboxes)]
+            )
+            i += len(texted_image.bboxes)
+
+        print("[Pipeline] Model3_pretrained Final Inference completed")
+
     def run(self):
+        # PRETRAINED_FINAL 모드는 전처리된 데이터를 직접 로드
+        if self.setting.model3_mode == ModelMode.PRETRAINED_FINAL:
+            print("[Pipeline] PRETRAINED_FINAL mode: Loading preprocessed data")
+            self.texted_images = self._load_preprocessed_data()
+            # Change device to GPU
+            self.setting.device = torch.device(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            )
+            print(f"[Pipeline] Using Device: {self.setting.device}")
+
+            # Model1, Model2 건너뛰고 Model3_pretrained 추론만 실행
+            self._run_model3_pretrained_final()
+            return
+
+        # 기존 파이프라인 (다른 모드들)
         self._run_imageloader()
         print(f"[Pipeline] Merging bboxes with margin {self.setting.margin}")
         for texted_image in self.texted_images:

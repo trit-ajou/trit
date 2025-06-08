@@ -17,6 +17,7 @@ class ModelMode(Enum):
     INFERENCE = 2
     PRETRAINED_INFERENCE = 3
     PRETRAINED_TRAIN = 4
+    PRETRAINED_FINAL = 5
 
 
 def tensor_rgb_to_cv2(t: torch.Tensor) -> np.ndarray:
