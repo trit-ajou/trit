@@ -32,7 +32,7 @@ class PipelineSetting:
     lr = 0.001
     weight_decay = 3e-4
     train_valid_split = 0.2
-    lora_rank = 8
+    lora_rank = 256
     lora_alpha = 16
     lora_weight_path = "trit/models/lora"
     mask_weight = 2.0
