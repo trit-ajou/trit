@@ -37,6 +37,7 @@ from .models.model1_util.model1_train import train_one_epoch_model1
 
 import torchvision.transforms.functional as VTF
 import os
+from .datas.textedImage_save_utils import load_timgs, LoadingMode
 
 from .datas.ImageLoader import ImageLoader
 from .datas.TextedImage import TextedImage
@@ -130,9 +131,12 @@ class PipelineMgr:
                 "mask_weight": self.setting.mask_weight,
             }
 
-            texted_images_for_model3 = [
-                deepcopy(texted_image) for texted_image in self.texted_images
-            ]
+            texted_images_for_model3 = load_timgs(
+                self.setting.texted_img_dir,
+                self.setting.device,
+                mode=LoadingMode.MODEL3_TRAIN,
+                max_num=self.setting.num_images,
+            )
             if self.setting.model3_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 3")
                 model3 = Model3(model_config)
