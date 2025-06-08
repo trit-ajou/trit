@@ -100,7 +100,6 @@ class PipelineMgr:
             print("[Pipeline] Skipping Model 2")
         # model 3
         if self.setting.model3_mode != ModelMode.SKIP:
-
             model_config = {
                 "model_id": "stabilityai/stable-diffusion-3.5-medium",
                 "prompts": "pure black and white manga style image with no color tint, absolute grayscale, contextual manga style",

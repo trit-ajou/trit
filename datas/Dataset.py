@@ -5,7 +5,6 @@ from typing import List, Tuple, Dict, Any  # Import Any
 from .TextedImage import TextedImage  # TextedImage is in the same directory
 from . import imgproc
 from torch.autograd import Variable
-import torchvision.transforms as VT
 import cv2
 import numpy as np
 
@@ -137,54 +136,15 @@ class MangaDataset1(Dataset):
 
 
 class MangaDataset2(Dataset):
-    def __init__(self, texted_images, transform=False):
+    def __init__():
         super().__init__()
-        self.texted_images = texted_images
-        self.transform = transform
-
-        if self.transform:
-            self.img_transform = VT.Compose(
-                [
-                    VT.ColorJitter(
-                        brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
-                    ),
-                    VT.RandomHorizontalFlip(p=0.3),
-                ]
-            )
+        self.data = data
 
     def __len__(self):
-        return len(self.texted_images)
+        return len(self.data)
 
     def __getitem__(self, idx: int):
-        texted_image = self.texted_images[idx]
-
-        # Get image and mask
-        timg = texted_image.timg  # (C, H, W)
-        mask = texted_image.mask  # (1, H, W)
-
-        # Apply transforms if enabled
-        if self.transform:
-            # Apply same transform to both image and mask
-            # Convert to PIL for transforms
-            timg_pil = VT.ToPILImage()(timg)
-            mask_pil = VT.ToPILImage()(mask)
-
-            # Apply transforms
-            timg_pil = self.img_transform(timg_pil)
-
-            # Convert back to tensor
-            timg = VT.ToTensor()(timg_pil)
-            mask = VT.ToTensor()(mask_pil)
-
-        # Ensure mask is in correct format for training
-        if mask.dim() == 3 and mask.shape[0] == 1:
-            mask = mask.squeeze(0)  # (1, H, W) -> (H, W)
-        elif mask.dim() == 2:
-            pass  # Already (H, W)
-        else:
-            raise ValueError(f"Unexpected mask dimensions: {mask.shape}")
-
-        return timg, mask
+        return self.data[idx]
 
 
 class MangaDataset3(Dataset):  # 초간단 model3 데이터셋

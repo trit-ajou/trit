@@ -49,7 +49,7 @@ class ImageLoader:
         self, num_images: int, dir: str, max_text_size: tuple[int, int]
     ):
         if self.future and not self.future.done():
-            raise RuntimeError("[ImageLoader] 이미 진행 중인 작업이 있습니다.")
+            raise RuntimeError("[ImageLoader] 이미 진행 중인 생성 작업이 있습니다.")
         print("[ImageLoader] 이미지 생성 작업을 시작합니다.")
         self.future = self.executor.submit(
             self._task_gen_images, num_images, dir, max_text_size
@@ -93,16 +93,6 @@ class ImageLoader:
         if pbar:
             pbar.close()
         return self.future.result()
-
-    def start_save_async(self, texted_images: list[TextedImage], dir: str):
-        if self.future and not self.future.done():
-            raise RuntimeError("[ImageLoader] 이미 진행 중인 작업이 있습니다.")
-        print("[ImageLoader] 이미지 저장 작업을 시작합니다.")
-        self.future = self.executor.submit(
-            self._task_save_images,
-            texted_images,
-            dir,
-        )
 
     def _task_gen_images(
         self,
@@ -156,13 +146,6 @@ class ImageLoader:
                 with self.lock:
                     self.completed_tasks += 1
         return texted_images
-
-    def _task_save_images(
-        self,
-        texted_images: list[TextedImage],
-        dir: str,
-    ):
-        pass
 
     def pil_to_texted_image(
         self,
