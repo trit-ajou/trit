@@ -228,7 +228,35 @@ class PipelineMgr:
             )
             i += len(texted_image.bboxes)
 
-        print("[Pipeline] Model3_pretrained Final Inference completed")
+        # 최종 합성 결과 저장
+        output_dir = "trit/datas/images/output"
+        os.makedirs(output_dir, exist_ok=True)
+
+        print(f"[Pipeline] Saving final composite results to {output_dir}")
+
+        from torchvision import transforms
+        for i, texted_image in enumerate(self.texted_images):
+            try:
+                # 최종 합성된 이미지를 PIL로 변환
+                final_result = transforms.ToPILImage()(texted_image.orig.cpu())
+
+                # 최종 결과 저장
+                final_path = f"{output_dir}/final_result_{i:03d}.png"
+                final_result.save(final_path)
+                print(f"[Pipeline] Saved final result: {final_path}")
+
+                # 원본 이미지도 비교용으로 저장 (timg - 텍스트가 있는 버전)
+                original_with_text = transforms.ToPILImage()(texted_image.timg.cpu())
+                original_path = f"{output_dir}/original_with_text_{i:03d}.png"
+                original_with_text.save(original_path)
+                print(f"[Pipeline] Saved original (with text): {original_path}")
+
+            except Exception as e:
+                print(f"[Pipeline] Error saving final result {i}: {e}")
+                continue
+
+        print(f"[Pipeline] Model3_pretrained Final Inference completed")
+        print(f"[Pipeline] Final results saved: {len(self.texted_images)} images")
 
     def run(self):
         # PRETRAINED_FINAL 모드는 전처리된 데이터를 직접 로드
