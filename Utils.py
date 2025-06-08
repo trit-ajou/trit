@@ -1,7 +1,6 @@
 import os
 import torch
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
 
 from .models.Utils import ModelMode
 from enum import Enum
@@ -12,8 +11,6 @@ class TimgGeneration(Enum):
     generate_save = 1
     use_saved = 2
     test = 3
-
-
 @dataclass
 class PipelineSetting:
     device = torch.device("cpu")
@@ -24,17 +21,10 @@ class PipelineSetting:
     _script_path = os.path.abspath(__file__)
     _script_dir = os.path.dirname(_script_path)
     font_dir = f"{_script_dir}/datas/fonts"
-    ckpt_dir = f"{_script_dir}/datas/checkpoints"
     clear_img_dir = f"{_script_dir}/datas/images/clear"
-    model1_input_dir = f"{_script_dir}/datas/images/model1_input"
-    model1_output_dir = f"{_script_dir}/datas/images/model1_output"
-    model2_input_dir = f"{_script_dir}/datas/images/model2_input"
-    model2_output_dir = f"{_script_dir}/datas/images/model2_output"
-    model3_input_dir = f"{_script_dir}/datas/images/model3_input"
-    model3_output_dir = f"{_script_dir}/datas/images/model3_output"
-
     texted_img_dir = f"{_script_dir}/datas/images/texted"
-    output_img_dir = f"{_script_dir}/datas/images/output"
+    output_img_dir = f"{_script_dir}/datas/images/output"  # Use for visualization
+    ckpt_dir = f"{_script_dir}/datas/checkpoints"
     debug_dir = f"{_script_dir}/debug"
 
     model1_input_size = (1700, 2400)
@@ -45,7 +35,7 @@ class PipelineSetting:
     use_noise = False
     margin = 4
     max_objects = 1024
-    epochs = 100
+    epochs = 0 # this is no matter to default value... fuck... go to main.py to change default value
     batch_size = 4
     lr = 0.001
     weight_decay = 3e-4
@@ -62,6 +52,10 @@ class PipelineSetting:
 
     vis_interval = 5
     ckpt_interval = 1
+
+
+from dataclasses import dataclass, field
+from typing import Literal
 
 
 @dataclass
@@ -153,3 +147,10 @@ class ImagePolicy:
     # 원근 왜곡 강도 (변화량의 최대 비율). 값이 클수록 왜곡이 심해짐.
     # 이미지의 네 꼭짓점을 얼마나 이동시킬지에 대한 비율.
     perspective_transform_strength_ratio_range: tuple[float, float] = (0.05, 0.2)
+
+    # --- SFX (효과음) 스타일 ---
+    # SFX 스타일은 위의 파라미터들을 더 극단적으로 사용하도록 유도.
+    # 이 플래그가 True이면, 실제 값을 생성하는 로직에서
+    # 예를 들어 font_size_ratio를 더 크게, rotation_angle 범위를 더 넓게,
+    # 외곽선을 더 두껍고 화려하게, 변형을 더 강하게 적용.
+    sfx_style_prob: float = 0.0  # SFX 스타일 적용 확률
