@@ -29,6 +29,7 @@ from copy import deepcopy
 from torchvision.transforms.functional import to_pil_image, to_tensor
 from PIL import Image
 from .datas.visualize_gt import visualize_craft_gt_components
+
 import torch.nn.functional as F
 from .models.model1_util import imgproc
 import cv2
@@ -69,34 +70,34 @@ class PipelineMgr:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
         print(f"[Pipeline] Using Device: {self.setting.device}")
-        # model 1
-        if self.setting.model1_mode != ModelMode.SKIP:
-            texted_images_for_model1 = [
-                deepcopy(texted_image) for texted_image in self.texted_images
-            ]
-            if self.setting.model1_mode == ModelMode.TRAIN:
-                print("[Pipeline] Training Model 1")
-                self._model1_train(texted_images_for_model1)
-            elif self.setting.model1_mode == ModelMode.INFERENCE:
-                print("[Pipeline] Inference Model 1")
-                self._model1_inference(texted_images_for_model1)
-        else:
-            print("[Pipeline] Skipping Model 1")
-        # model 2
-        if self.setting.model2_mode != ModelMode.SKIP:
-            texted_images_for_model2 = [
-                _splitted
-                for texted_image in self.texted_images
-                for _splitted in texted_image.split_margin_crop(self.setting.margin)
-            ]
-            if self.setting.model2_mode == ModelMode.TRAIN:
-                print("[Pipeline] Training Model 2")
-                self._model2_train(texted_images_for_model2)
-            elif self.setting.model2_mode == ModelMode.INFERENCE:
-                print("[Pipeline] Inference Model 2")
-                self._model2_inference(texted_images_for_model2)
-        else:
-            print("[Pipeline] Skipping Model 2")
+        # # model 1
+        # if self.setting.model1_mode != ModelMode.SKIP:
+        #     texted_images_for_model1 = [
+        #         deepcopy(texted_image) for texted_image in self.texted_images
+        #     ]
+        #     if self.setting.model1_mode == ModelMode.TRAIN:
+        #         print("[Pipeline] Training Model 1")
+        #         self._model1_train(texted_images_for_model1)
+        #     elif self.setting.model1_mode == ModelMode.INFERENCE:
+        #         print("[Pipeline] Inference Model 1")
+        #         self._model1_inference(texted_images_for_model1)
+        # else:
+        #     print("[Pipeline] Skipping Model 1")
+        # # model 2
+        # if self.setting.model2_mode != ModelMode.SKIP:
+        #     texted_images_for_model2 = [
+        #         _splitted
+        #         for texted_image in self.texted_images
+        #         for _splitted in texted_image.split_margin_crop(self.setting.margin)
+        #     ]
+        #     if self.setting.model2_mode == ModelMode.TRAIN:
+        #         print("[Pipeline] Training Model 2")
+        #         self._model2_train(texted_images_for_model2)
+        #     elif self.setting.model2_mode == ModelMode.INFERENCE:
+        #         print("[Pipeline] Inference Model 2")
+        #         self._model2_inference(texted_images_for_model2)
+        # else:
+        #     print("[Pipeline] Skipping Model 2")
         # model 3
         if self.setting.model3_mode != ModelMode.SKIP:
             model_config = {
@@ -130,13 +131,14 @@ class PipelineMgr:
                 "output_dir": "trit/datas/images/output",  # 학습 중 시각화 결과 저장 경로
                 "mask_weight": self.setting.mask_weight,
             }
+
             texted_images_for_model3 = load_timgs(
                 self.setting.texted_img_dir,
                 self.setting.device,
-                mode=LoadingMode.MODEL3_TRAIN,
+                mode=LoadingMode.MODEL3_INFER,
                 max_num=self.setting.num_images,
             )
-            
+
             if self.setting.model3_mode == ModelMode.TRAIN:
                 print("[Pipeline] Training Model 3")
                 model3 = Model3(model_config)
@@ -144,7 +146,6 @@ class PipelineMgr:
                 model3.lora_train(texted_images_for_model3)
 
             elif self.setting.model3_mode == ModelMode.INFERENCE:
-                
                 print("[Pipeline] Running Model 3 Inference")
                 model3 = Model3(model_config)
                 # 패치들을 인페인팅
@@ -158,7 +159,9 @@ class PipelineMgr:
                     i += len(texted_image.bboxes)
                     
                 for i, texted_image in enumerate(self.texted_images):
-                    texted_image.visualize(self.setting.output_img_dir, f"final_{texted_image}.{i}.png")
+                    texted_image.visualize(
+                        dir=self.setting.output_img_dir, filename=f"final_{i}.png"
+                    )
 
             # 사전 훈련 모델 훈련
             elif self.setting.model3_mode == ModelMode.PRETRAINED_TRAIN:
@@ -182,7 +185,9 @@ class PipelineMgr:
                     i += len(texted_image.bboxes)
                     
                 for i, texted_image in enumerate(self.texted_images):
-                    texted_image.visualize(self.setting.output_img_dir, f"final_{texted_image}.{i}.png")
+                    texted_image.visualize(
+                        dir=self.setting.output_img_dir, filename=f"final_{i}.png"
+                    )
 
     def _run_imageloader(self):
         print("[Pipeline] Loading Images")
