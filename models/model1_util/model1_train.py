@@ -7,14 +7,14 @@ import matplotlib.pyplot as plt
 
 
 def train_one_epoch_model1(
-        model: torch.nn.Module,
-        train_loader: torch.utils.data.DataLoader,
-        optimizer: torch.optim.Optimizer,
-        device: torch.device,
-        epoch: int,
-        num_epochs: int,
-        vis_save_dir: str,
-        vis_interval: int = 1
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    num_epochs: int,
+    vis_save_dir: str,
+    vis_interval: int = 1,
 ):
     """
     CRAFT(Model1)를 한 에폭(epoch) 동안 학습시키고, 주기적으로 시각화를 수행합니다.
@@ -42,10 +42,12 @@ def train_one_epoch_model1(
         train_loader,
         desc=f"Epoch {epoch + 1}/{num_epochs} - Model1 Train",
         leave=False,
-        dynamic_ncols=True
+        dynamic_ncols=True,
     )
 
-    for batch_idx, (images, region_targets, affinity_targets) in enumerate(batch_iterator):
+    for batch_idx, (images, region_targets, affinity_targets, _, _) in enumerate(
+        batch_iterator
+    ):
         # --- 데이터 준비 ---
         images = images.to(device)
         region_targets = region_targets.to(device)
@@ -69,8 +71,12 @@ def train_one_epoch_model1(
         # 0으로 나누는 것을 방지하기 위해 작은 값(epsilon) 추가
         pos_weight = torch.tensor([neg_count / (pos_count + 1e-6)], device=device)
 
-        loss_region = F.binary_cross_entropy_with_logits(pred_region, region_targets, pos_weight=pos_weight)
-        loss_affinity = F.binary_cross_entropy_with_logits(pred_affinity, affinity_targets, pos_weight=pos_weight)
+        loss_region = F.binary_cross_entropy_with_logits(
+            pred_region, region_targets, pos_weight=pos_weight
+        )
+        loss_affinity = F.binary_cross_entropy_with_logits(
+            pred_affinity, affinity_targets, pos_weight=pos_weight
+        )
         batch_loss = loss_region + loss_affinity
 
         # --- 역전파 (Backward Pass) ---
@@ -95,21 +101,22 @@ def train_one_epoch_model1(
             pred_region_batch=pred_region.detach(),
             pred_affinity_batch=pred_affinity.detach(),
             epoch=epoch,
-            save_dir=vis_save_dir
+            save_dir=vis_save_dir,
         )
 
     # --- 평균 손실 반환 ---
     avg_epoch_loss = total_loss / num_batches if num_batches > 0 else 0.0
     return avg_epoch_loss
 
+
 def visualize_training_progress_model1(
-        gt_region_batch: torch.Tensor,
-        gt_affinity_batch: torch.Tensor,
-        pred_region_batch: torch.Tensor,
-        pred_affinity_batch: torch.Tensor,
-        epoch: int,
-        save_dir: str,
-        prefix: str = "model1_train"
+    gt_region_batch: torch.Tensor,
+    gt_affinity_batch: torch.Tensor,
+    pred_region_batch: torch.Tensor,
+    pred_affinity_batch: torch.Tensor,
+    epoch: int,
+    save_dir: str,
+    prefix: str = "model1_train",
 ):
     """
     CRAFT(Model1) 학습 중인 한 배치의 GT와 Prediction을 시각화합니다.
@@ -141,33 +148,35 @@ def visualize_training_progress_model1(
     fig.suptitle(f"Epoch {epoch + 1} - Sample from Batch", fontsize=16)
 
     # GT Region
-    im1 = axes[0].imshow(gt_region, cmap='jet', vmin=0, vmax=1)
-    axes[0].set_title("GT Region");
-    axes[0].axis('off');
+    im1 = axes[0].imshow(gt_region, cmap="jet", vmin=0, vmax=1)
+    axes[0].set_title("GT Region")
+    axes[0].axis("off")
     fig.colorbar(im1, ax=axes[0])
 
     # Pred Region
-    im2 = axes[1].imshow(pred_region, cmap='jet', vmin=0, vmax=1)
-    axes[1].set_title("Pred Region");
-    axes[1].axis('off');
+    im2 = axes[1].imshow(pred_region, cmap="jet", vmin=0, vmax=1)
+    axes[1].set_title("Pred Region")
+    axes[1].axis("off")
     fig.colorbar(im2, ax=axes[1])
 
     # GT Affinity
-    im3 = axes[2].imshow(gt_affinity, cmap='jet', vmin=0, vmax=1)
-    axes[2].set_title("GT Affinity");
-    axes[2].axis('off');
+    im3 = axes[2].imshow(gt_affinity, cmap="jet", vmin=0, vmax=1)
+    axes[2].set_title("GT Affinity")
+    axes[2].axis("off")
     fig.colorbar(im3, ax=axes[2])
 
     # Pred Affinity
-    im4 = axes[3].imshow(pred_affinity, cmap='jet', vmin=0, vmax=1)
-    axes[3].set_title("Pred Affinity");
-    axes[3].axis('off');
+    im4 = axes[3].imshow(pred_affinity, cmap="jet", vmin=0, vmax=1)
+    axes[3].set_title("Pred Affinity")
+    axes[3].axis("off")
     fig.colorbar(im4, ax=axes[3])
 
     # 이미지 저장
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, f"{prefix}_epoch{epoch + 1}_sample{sample_idx}.png")
+    save_path = os.path.join(
+        save_dir, f"{prefix}_epoch{epoch + 1}_sample{sample_idx}.png"
+    )
     plt.savefig(save_path)
     plt.close(fig)
     print(f"\n[Visualizer] Saved training visualization to {save_path}")

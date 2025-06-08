@@ -10,11 +10,12 @@ import numpy as np
 
 
 class MangaDataset1(Dataset):
-    def __init__(self,
-                 texted_image_list: List['TextedImage'],
-                 canvas_size: int = 1280,
-                 mag_ratio: float = 1.5,
-                 ):
+    def __init__(
+        self,
+        texted_image_list: List["TextedImage"],
+        canvas_size: int = 1280,
+        mag_ratio: float = 1.5,
+    ):
         """
         CRAFT 모델 학습을 위한 전용 데이터셋.
         __getitem__에서 이미지 및 GT 맵에 대한 리사이즈 및 정규화를 수행합니다.
@@ -33,7 +34,9 @@ class MangaDataset1(Dataset):
     def __len__(self) -> int:
         return len(self.texted_images)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def __getitem__(
+        self, idx: int
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         하나의 샘플에 대해 전처리를 적용하고 (이미지, Region GT, Affinity GT)를 반환합니다.
         """
@@ -57,7 +60,7 @@ class MangaDataset1(Dataset):
             image_np,
             self.canvas_size,
             interpolation=cv2.INTER_LINEAR,
-            mag_ratio=self.mag_ratio
+            mag_ratio=self.mag_ratio,
         )
 
         # GT 맵 리사이즈 (이미지와 동일한 비율로, INTER_NEAREST 사용 권장)
@@ -67,7 +70,9 @@ class MangaDataset1(Dataset):
         target_h, target_w = int(height * target_ratio), int(width * target_ratio)
 
         # GT 맵은 히트맵이므로 Nearest-neighbor 보간법이 더 적합할 수 있음
-        gt_maps_resized = cv2.resize(gt_maps_np, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+        gt_maps_resized = cv2.resize(
+            gt_maps_np, (target_w, target_h), interpolation=cv2.INTER_NEAREST
+        )
 
         # 만약 gt_maps_resized가 (H,W) 형태로 (채널 차원이 사라짐) 리턴되면 다시 확장
         if gt_maps_resized.ndim == 2:
@@ -87,7 +92,9 @@ class MangaDataset1(Dataset):
         paste_h, paste_w = target_h // 2, target_w // 2
 
         # gt_maps_resized도 1/2 스케일로 다시 리사이즈
-        gt_maps_resized_half = cv2.resize(gt_maps_resized, (paste_w, paste_h), interpolation=cv2.INTER_NEAREST)
+        gt_maps_resized_half = cv2.resize(
+            gt_maps_resized, (paste_w, paste_h), interpolation=cv2.INTER_NEAREST
+        )
         if gt_maps_resized_half.ndim == 2:
             gt_maps_resized_half = np.expand_dims(gt_maps_resized_half, axis=2)
 
@@ -119,7 +126,13 @@ class MangaDataset1(Dataset):
         original_timg = self.texted_images[idx].timg
         original_mask = self.texted_images[idx].mask
 
-        return image_tensor, region_gt_tensor, affinity_gt_tensor, original_timg, original_mask
+        return (
+            image_tensor,
+            region_gt_tensor,
+            affinity_gt_tensor,
+            original_timg,
+            original_mask,
+        )
 
 
 class MangaDataset2(Dataset):
@@ -129,15 +142,16 @@ class MangaDataset2(Dataset):
 
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, idx: int):
         return self.data[idx]
 
 
-class MangaDataset3(Dataset): # 초간단 model3 데이터셋
+class MangaDataset3(Dataset):  # 초간단 model3 데이터셋
     def __init__(self, data: list[TextedImage]):
         super().__init__()
         self.data = data
+
     def __len__(self):
         return len(self.data)
 

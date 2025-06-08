@@ -5,7 +5,8 @@ from .Pipeline import PipelineMgr
 from .Utils import PipelineSetting, ImagePolicy, TimgGeneration
 from .models.Utils import ModelMode
 from dataclasses import dataclass, field
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 def parse_args():
@@ -32,37 +33,47 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=PipelineSetting.num_workers)
     parser.add_argument("--num_images", type=int, default=PipelineSetting.num_images)
     parser.add_argument("--use_noise", action="store_true")
-
     parser.add_argument("--margin", type=int, default=PipelineSetting.margin)
     parser.add_argument("--max_objects", type=int, default=PipelineSetting.max_objects)
     parser.add_argument("--epochs", type=int, default=PipelineSetting.epochs)
     parser.add_argument("--batch_size", type=int, default=PipelineSetting.batch_size)
     parser.add_argument("--lr", type=float, default=PipelineSetting.lr)
-    parser.add_argument("--weight_decay", type=float, default=PipelineSetting.weight_decay)
-    parser.add_argument("--vis_interval", type=int, default=PipelineSetting.vis_interval)
-    parser.add_argument("--ckpt_interval", type=int, default=PipelineSetting.ckpt_interval)
-    parser.add_argument("--timg_generation", type=str, default="generate_only", choices=["generate_only", "generate_save", "use_saved", "test"])
+    parser.add_argument(
+        "--weight_decay", type=float, default=PipelineSetting.weight_decay
+    )
+    parser.add_argument(
+        "--vis_interval", type=int, default=PipelineSetting.vis_interval
+    )
+    parser.add_argument(
+        "--ckpt_interval", type=int, default=PipelineSetting.ckpt_interval
+    )
+    parser.add_argument(
+        "--timg_generation",
+        type=str,
+        default="generate_only",
+        choices=["generate_only", "generate_save", "use_saved", "test"],
+    )
     # Model 3 training Options
-    parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")  
+    parser.add_argument("--images_dir", type=str, default="trit/datas/images/clear")
     parser.add_argument("--lora_rank", type=int, default=8)
-    parser.add_argument("--lora_weight_path", type = str, default="trit/models/lora")
+    parser.add_argument("--lora_weight_path", type=str, default="trit/models/lora")
     parser.add_argument("--mask_weight", type=float, default=2.0)
-    
+
     args = parser.parse_args()
     return args
 
 
 if __name__ == "__main__":
     setting = PipelineSetting()
-    policy = ImagePolicy(text_color_is_random=False,
-                         fixed_text_color_options=[(0, 0, 0),(0, 0, 0)],
-                         opacity_range=(255,255),
-                         stroke_color_is_random=False,
-                         stroke_prob=1,
-                         fixed_stroke_color_options=[(255,255,255),(255,255,255)],
-                         shadow_prob=0,
-
-                         )
+    policy = ImagePolicy(
+        text_color_is_random=False,
+        fixed_text_color_options=[(0, 0, 0), (0, 0, 0)],
+        opacity_range=(255, 255),
+        stroke_color_is_random=False,
+        stroke_prob=1,
+        fixed_stroke_color_options=[(255, 255, 255), (255, 255, 255)],
+        shadow_prob=0,
+    )
     # print(policy)
     args = parse_args()
     if args.timg_generation == "generate_only":
@@ -92,7 +103,7 @@ if __name__ == "__main__":
     elif args.model3 == "inference":
         setting.model3_mode = ModelMode.INFERENCE
     elif args.model3 == "pretrained":
-        setting.model3_mode = ModelMode.PRETRAINED
+        setting.model3_mode = ModelMode.PRETRAINED_INFERENCE
     elif args.model3 == "pretrained-train":
         setting.model3_mode = ModelMode.PRETRAINED_TRAIN
 
@@ -112,9 +123,6 @@ if __name__ == "__main__":
     setting.lora_rank = args.lora_rank
     setting.lora_alpha = setting.lora_rank * 2
     setting.lora_weight_path = args.lora_weight_path
-    
-    
-    
 
     pipeline = PipelineMgr(setting, policy)
     pipeline.run()
