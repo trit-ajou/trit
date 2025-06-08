@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import os
-from torch.amp.grad_scaler import GradScaler
 import numpy as np
 import gc
 from torch import autocast
@@ -167,7 +166,8 @@ class Model3_pretrained(nn.Module):
 
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
-        scaler = GradScaler(enabled=(weight_dtype == torch.float16))
+        # Adafactor는 자체 스케일링을 하므로 GradScaler 사용하지 않음
+        print(f"[Training] Using Adafactor without GradScaler (Adafactor handles scaling internally)")
 
         # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
         print(f"[Training Debug] Model dtypes at start:")
@@ -313,18 +313,18 @@ class Model3_pretrained(nn.Module):
                 
                 
                 optimizer.zero_grad(set_to_none=True)
-            
-                scaler.scale(loss).backward() # 🚀 스케일된 손실로 역전파
 
-                # 🚀 그래디언트 클리핑 (옵티마이저 스텝 전, unscale 후)
-                scaler.unscale_(optimizer) # 옵티마이저에 연결된 파라미터들의 그래디언트를 원래 값으로 되돌림
+                # Adafactor는 자체 스케일링을 하므로 일반 역전파 사용
+                loss.backward()
+
+                # 그래디언트 클리핑 (Adafactor와 함께 사용)
                 torch.nn.utils.clip_grad_norm_(
                     [p for p in unet_lora.parameters() if p.requires_grad],
                     max_norm=self.model_config.get("max_grad_norm", 1.0)
                 )
-                
-                scaler.step(optimizer) # 🚀 옵티마이저 스텝 (스케일된 그래디언트 자동 처리)
-                scaler.update()        # 🚀 스케일러 업데이트 (다음 스텝을 위해 스케일 조정)
+
+                # 옵티마이저 스텝 (Adafactor가 자체적으로 스케일링 처리)
+                optimizer.step()
             
                 
                 # 손실 추적
