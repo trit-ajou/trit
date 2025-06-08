@@ -185,6 +185,7 @@ class Model3_pretrained(nn.Module):
         for epoch in tqdm(range(num_epochs), desc="Epochs"):
             unet_lora.train()
             epoch_loss = 0.0
+            num_train_batches = 0
 
             step = 0
             for batch_images in tqdm(train_loader, desc="Training batches"):
@@ -316,18 +317,21 @@ class Model3_pretrained(nn.Module):
                 
                 # 손실 추적
                 epoch_loss += loss.detach().item()
-                
+                num_train_batches += 1
+
                 # 메모리 정리
                 del loss, noise_pred, latent_model_input, timesteps_input
                 torch.cuda.empty_cache()
-                
+
             # 에폭 종료 후 검증 손실 계산
             if epoch > 0:
-                avg_train_loss = epoch_loss / epoch
+                # 올바른 평균 계산: 총 손실을 배치 수로 나눔
+                avg_train_loss = epoch_loss / num_train_batches if num_train_batches > 0 else 0.0
+
                 print(f"Epoch {epoch+1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}")
 
                 # 손실 기록 저장
-                train_losses.append(avg_train_loss)
+                train_losses.append(avg_train_loss) 
                 epochs_recorded.append(epoch + 1)
 
                 # 검증 손실 계산 (validation set이 있을 때만)
