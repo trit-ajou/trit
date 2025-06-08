@@ -158,9 +158,24 @@ class Model3_pretrained(nn.Module):
         val_losses = []
         epochs_recorded = []
 
+        # 모든 모델을 fp16으로 설정 (훈련 시작 전)
+        if weight_dtype == torch.float16:
+            unet_lora = unet_lora.half()
+            vae = vae.half()
+            text_encoder = text_encoder.half()
+            print(f"[Training] All models converted to fp16")
+
         # CUDNN 벤치마크 활성화 (반복적인 크기의 입력에 대해 최적화)
         torch.backends.cudnn.benchmark = True
         scaler = GradScaler(enabled=(weight_dtype == torch.float16))
+
+        # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
+        print(f"[Training Debug] Model dtypes at start:")
+        print(f"  UNet dtype: {next(unet_lora.parameters()).dtype}")
+        print(f"  VAE dtype: {next(vae.parameters()).dtype}")
+        print(f"  Text Encoder dtype: {next(text_encoder.parameters()).dtype}")
+        print(f"  weight_dtype setting: {weight_dtype}")
+        print(f"  Mixed precision enabled: {weight_dtype == torch.float16}")
 
         # 디버깅: 훈련 시작 시 모델 데이터 타입 확인
         print(f"[Training Debug] Model dtypes at start:")
@@ -208,9 +223,8 @@ class Model3_pretrained(nn.Module):
                 ).to(self.device, dtype=weight_dtype)
 
                 with torch.no_grad():
-                    # VAE 인코딩 - fp16으로 설정
+                    # VAE 인코딩 (이미 fp16으로 설정됨)
                     vae.to(self.device)
-                    vae = vae.half()  # VAE를 fp16으로 설정
                     
                     
                     target_latents_batch = vae.encode(original_pixel_values_batch).latent_dist.sample() * vae.config.scaling_factor
@@ -223,10 +237,9 @@ class Model3_pretrained(nn.Module):
                     ) # [B, 1, H_lat, W_lat]
                     
                       
-                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용 (fp16으로 설정)
+                    # 텍스트 임베딩 생성 - SD2는 단일 텍스트 인코더 사용 (이미 fp16으로 설정됨)
                     print("[Model3-pretrained TRAIN] 텍스트 임베딩 생성 중 ...")
                     text_encoder.to(self.device)
-                    text_encoder = text_encoder.half()  # Text Encoder를 fp16으로 설정
 
                     prompt_embeds, negative_prompt_embeds = self._encode_prompt_sd2(
                         prompt, negative_prompt, tokenizer, text_encoder, self.device, len(batch_images)
@@ -528,9 +541,11 @@ Training Summary:
 
         # 모든 모델을 fp16으로 설정하고 평가 모드로 전환
         unet_lora.eval()
+        unet_lora = unet_lora.half()  # UNet도 fp16으로 명시적 변환
         vae = vae.half()  # VAE를 fp16으로
         text_encoder = text_encoder.half()  # Text Encoder를 fp16으로
         print(f"[Validation] All models set to fp16")
+        print(f"[Validation] UNet dtype after conversion: {next(unet_lora.parameters()).dtype}")
 
         device = self.device
         total_val_loss = 0.0
