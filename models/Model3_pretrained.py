@@ -722,12 +722,23 @@ Training Summary:
                     # 이미지 크기 가져오기
                     width, height = orig_pil.size
 
+                    # Stable Diffusion VAE 요구사항: 8의 배수로 조정
+                    adjusted_width = ((width + 7) // 8) * 8
+                    adjusted_height = ((height + 7) // 8) * 8
+
+                    print(f"[Model3 Inference] Adjusting size from {width}x{height} to {adjusted_width}x{adjusted_height}")
+
+                    # 이미지와 마스크를 8의 배수 크기로 리사이즈
+                    if width != adjusted_width or height != adjusted_height:
+                        orig_pil = orig_pil.resize((adjusted_width, adjusted_height), Image.LANCZOS)
+                        mask_binary_pil = mask_binary_pil.resize((adjusted_width, adjusted_height), Image.LANCZOS)
+
                     # SD 인페인팅 실행
                     result = pipe(
                         prompt=prompt,
                         negative_prompt=negative_prompt,
-                        height=height,
-                        width=width,
+                        height=adjusted_height,
+                        width=adjusted_width,
                         image=orig_pil,
                         mask_image=mask_binary_pil,
                         num_inference_steps=num_inference_steps,
